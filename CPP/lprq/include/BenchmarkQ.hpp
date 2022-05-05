@@ -35,9 +35,10 @@
 #include <vector>
 #include <algorithm>
 #include <cassert>
+#include <AdditionalWork.hpp>
 #include "MichaelScottQueue.hpp"
 #include "LCRQueue.hpp"
-//#include "KoganPetrankQueueCHP.hpp"
+#include "LPRQueue2.hpp"
 
 
 using namespace std;
@@ -45,8 +46,6 @@ using namespace chrono;
 
 
 /**
- * This is a micro-benchmark to run the tests shown in CRTurnQueue paper
- *
  *
  */
 class BenchmarkQ {
@@ -354,10 +353,11 @@ public:
 
         // Enq-Deq Throughput benchmarks
         for (int nThreads : threadList) {
-            const int numPairs = 50'000'000LL;
+            const int numPairs = 10'000'000LL;
             BenchmarkQ bench(nThreads);
             std::cout << "\n----- Enq-Deq Benchmark   numThreads=" << nThreads << "   numPairs=" << numPairs/1000000LL << "M -----\n";
-//            bench.enqDeqBenchmark<LCRQueue<UserData>>(numPairs, numRuns);
+            bench.enqDeqBenchmark<LCRQueue<UserData>>(numPairs, numRuns);
+            bench.enqDeqBenchmark<LPRQueue2<UserData>>(numPairs, numRuns);
 //            bench.enqDeqBenchmark<MichaelScottQueue<UserData>>(numPairs, numRuns);
         }
 
@@ -368,7 +368,7 @@ public:
             BenchmarkQ bench(nThreads);
             std::cout << "\n----- Burst Benchmark   numThreads=" << nThreads << "   burstSize=" << burstSize/1000LL << "K   numIters=" << numIters << " -----\n";
 //            bench.burstBenchmark<MichaelScottQueue<UserData>>(burstSize, numIters, numRuns);
-            bench.burstBenchmark<LCRQueue<UserData>>(burstSize, numIters, numRuns);
+//            bench.burstBenchmark<LCRQueue<UserData>>(burstSize, numIters, numRuns);
         }
     }
 };

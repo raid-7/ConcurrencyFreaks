@@ -32,24 +32,6 @@
 #include <atomic>
 #include "HazardPointers.hpp"
 
-// CAS2 macro
-
-#define __CAS2(ptr, o1, o2, n1, n2)                             \
-({                                                              \
-    char __ret;                                                 \
-    __typeof__(o2) __junk;                                      \
-    __typeof__(*(ptr)) __old1 = (o1);                           \
-    __typeof__(o2) __old2 = (o2);                               \
-    __typeof__(*(ptr)) __new1 = (n1);                           \
-    __typeof__(o2) __new2 = (n2);                               \
-    asm volatile("lock cmpxchg16b %2;setz %1"                   \
-                   : "=d"(__junk), "=a"(__ret), "+m" (*ptr)     \
-                   : "b"(__new1), "c"(__new2),                  \
-                     "a"(__old1), "d"(__old2));                 \
-    __ret; })
-
-#define CAS2(ptr, o1, o2, n1, n2)    __CAS2(ptr, o1, o2, n1, n2)
-
 
 #define BIT_TEST_AND_SET(ptr, b)                                \
 ({                                                              \
@@ -239,14 +221,20 @@ public:
             }
             Cell* cell = &ltail->array[tailticket & (RING_SIZE-1)];
             uint64_t idx = cell->idx.load();
-            if (cell->val.load() == nullptr) {
-                if (node_index(idx) <= tailticket) {
-                    // TODO: is the missing cast before "t" ok or not to add?
-                    if ((!node_unsafe(idx) || ltail->head.load() <= (int64_t)tailticket)) {
-                        if (CAS2((void**)cell, nullptr, idx, static_cast<void*>(item), tailticket + RING_SIZE)) {
+            void* val = cell->val.load();
+            if (val == nullptr
+                && node_index(idx) <= tailticket
+                && (!node_unsafe(idx) || ltail->head.load() <= (int64_t)tailticket)) {
+
+                void* bottom = thread_local_bottom(tid);
+                if (cell->val.compare_exchange_strong(val, bottom)) {
+                    if (cell->idx.compare_exchange_strong(idx, tailticket + RING_SIZE)) {
+                        if (cell->val.compare_exchange_strong(bottom, item)) {
                             hp.clear(tid);
                             return;
                         }
+                    } else {
+                        cell->val.compare_exchange_strong(bottom, nullptr);
                     }
                 }
             }
@@ -275,7 +263,7 @@ public:
                 if (idx > headticket)
                     break;
 
-                if (val != nullptr) {
+                if (val != nullptr && !is_bottom(val)) {
                     if (idx == headticket) {
                         cell->val.store(nullptr);
                         hp.clear(tid);
@@ -296,9 +284,13 @@ public:
                     int crq_closed = crq_is_closed(tt);
                     uint64_t t = tail_index(tt);
                     if (unsafe) { // Nothing to do, move along
+                        if (is_bottom(val) && !cell->val.compare_exchange_strong(val, nullptr))
+                            continue;
                         if (cell->idx.compare_exchange_strong(cell_idx, unsafe | headticket))
                             break;
                     } else if (t < headticket + 1 || r > 200000 || crq_closed) {
+                        if (is_bottom(val) && !cell->val.compare_exchange_strong(val, nullptr))
+                            continue;
                         if (cell->idx.compare_exchange_strong(cell_idx, unsafe | headticket)) {
                             if (r > 200000 && tt > RING_SIZE)
                                 BIT_TEST_AND_SET(&lhead->tail, 63);
