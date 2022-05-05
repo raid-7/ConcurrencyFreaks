@@ -26,8 +26,7 @@
  ******************************************************************************
  */
 
-#ifndef _LCRQ_QUEUE_HP_H_
-#define _LCRQ_QUEUE_HP_H_
+#pragma once
 
 
 #include <atomic>
@@ -63,10 +62,11 @@
 
 
 /**
- * <h1> LCRQ Queue </h1>
+ * <h1> LPRQ2 Queue </h1>
  *
- * This is LCRQ by Adam Morrison and Yehuda Afek
+ * Based on LCRQ implementation by Pedro Ramalhete Andreia Correia
  * http://www.cs.tau.ac.il/~mad/publications/ppopp2013-x86queues.pdf
+ * https://github.com/pramalhe/ConcurrencyFreaks
  *
  * This implementation does NOT obey the C++ memory model rules AND it is x86 specific.
  * No guarantees are given on the correctness or consistency of the results if you use this queue.
@@ -89,16 +89,17 @@
  *
  * @author Pedro Ramalhete
  * @author Andreia Correia
+ * @autor Raed Romanov
  */
 template<typename T>
-class LCRQueue {
+class LPRQueue2 {
 
 private:
     static const int RING_POW = 10;
     static const uint64_t RING_SIZE = 1ull << RING_POW;
 
     struct Cell {
-        std::atomic<T*>       val;
+        std::atomic<void*>       val;
         std::atomic<uint64_t> idx;
         uint64_t pad[14];
     } __attribute__ ((aligned (128)));
@@ -158,6 +159,14 @@ private:
         return (t & (1ull << 63)) != 0;
     }
 
+    bool is_bottom(void* const value) {
+        return (reinterpret_cast<uintptr_t>(value) & 1) != 0;
+    }
+
+    void* thread_local_bottom(const int tid) {
+        return reinterpret_cast<void*>(static_cast<uintptr_t>((tid << 1) | 1));
+    }
+
     void fixState(Node *lhead) {
         while (1) {
             uint64_t t = lhead->tail.fetch_add(0);
@@ -185,7 +194,7 @@ private:
 
 
 public:
-    LCRQueue(int maxThreads=MAX_THREADS) : maxThreads{maxThreads} {
+    LPRQueue2(int maxThreads=MAX_THREADS) : maxThreads{maxThreads} {
         // Shared object init
         Node *sentinel = new Node;
         head.store(sentinel, std::memory_order_relaxed);
@@ -193,12 +202,12 @@ public:
     }
 
 
-    ~LCRQueue() {
+    ~LPRQueue2() {
         while (dequeue(0) != nullptr); // Drain the queue
         delete head.load();            // Delete the last node
     }
 
-    std::string className() { return "LCRQueue"; }
+    std::string className() { return "LPRQueue"; }
 
 
     void enqueue(T* item, const int tid) {
@@ -233,15 +242,16 @@ public:
             if (cell->val.load() == nullptr) {
                 if (node_index(idx) <= tailticket) {
                     // TODO: is the missing cast before "t" ok or not to add?
-                    if ((!node_unsafe(idx) || ltail->head.load() < (int64_t)tailticket)) {
-                        if (CAS2((void**)cell, nullptr, idx, item, tailticket)) {
+                    if ((!node_unsafe(idx) || ltail->head.load() <= (int64_t)tailticket)) {
+                        if (CAS2((void**)cell, nullptr, idx, static_cast<void*>(item), tailticket + RING_SIZE)) {
                             hp.clear(tid);
                             return;
                         }
                     }
                 }
             }
-            if (((int64_t)(tailticket - ltail->head.load()) >= (int64_t)RING_SIZE) && close_crq(ltail, tailticket, ++try_close)) continue;
+            if (((int64_t) (tailticket - ltail->head.load()) >= (int64_t) RING_SIZE))
+                close_crq(ltail, tailticket, ++try_close);
         }
     }
 
@@ -250,7 +260,7 @@ public:
         while (true) {
             Node* lhead = hp.protectPtr(kHpHead, head.load(), tid);
             if (lhead != head.load()) continue;
-            uint64_t headticket = lhead->head.fetch_add(1);
+            uint64_t headticket = lhead->head.fetch_add(1) + RING_SIZE;
             Cell* cell = &lhead->array[headticket & (RING_SIZE-1)];
 
             int r = 0;
@@ -260,30 +270,38 @@ public:
                 uint64_t cell_idx = cell->idx.load();
                 uint64_t unsafe = node_unsafe(cell_idx);
                 uint64_t idx = node_index(cell_idx);
-                T* val = cell->val.load();
+                void* val = cell->val.load();
 
-                if (idx > headticket) break;
+                if (idx > headticket)
+                    break;
 
                 if (val != nullptr) {
                     if (idx == headticket) {
-                        if (CAS2((void**)cell, val, cell_idx, nullptr, unsafe | (headticket + RING_SIZE))) {
-                            hp.clear(tid);
-                            return val;
-                        }
+                        cell->val.store(nullptr);
+                        hp.clear(tid);
+                        return static_cast<T*>(val);
                     } else {
-                        if (CAS2((void**)cell, val, cell_idx, val, set_unsafe(idx))) break;
+                        if (unsafe) {
+                            if (cell->idx.load() == cell_idx)
+                                break;
+                        } else {
+                            if (cell->idx.compare_exchange_strong(cell_idx, set_unsafe(idx)))
+                                break;
+                        }
                     }
                 } else {
-                    if ((r & ((1ull << 10) - 1)) == 0) tt = lhead->tail.load();
+                    if ((r & ((1ull << 10) - 1)) == 0)
+                        tt = lhead->tail.load();
                     // Optimization: try to bail quickly if queue is closed.
                     int crq_closed = crq_is_closed(tt);
                     uint64_t t = tail_index(tt);
                     if (unsafe) { // Nothing to do, move along
-                        if (CAS2((void**)cell, val, cell_idx, val, unsafe | (headticket + RING_SIZE)))
+                        if (cell->idx.compare_exchange_strong(cell_idx, unsafe | headticket))
                             break;
                     } else if (t < headticket + 1 || r > 200000 || crq_closed) {
-                        if (CAS2((void**)cell, val, idx, val, headticket + RING_SIZE)) {
-                            if (r > 200000 && tt > RING_SIZE) BIT_TEST_AND_SET(&lhead->tail, 63);
+                        if (cell->idx.compare_exchange_strong(cell_idx, unsafe | headticket)) {
+                            if (r > 200000 && tt > RING_SIZE)
+                                BIT_TEST_AND_SET(&lhead->tail, 63);
                             break;
                         }
                     } else {
@@ -307,5 +325,3 @@ public:
         }
     }
 };
-
-#endif /* _LCRQ_QUEUE_HP_H_ */
