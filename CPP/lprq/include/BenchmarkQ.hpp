@@ -36,7 +36,7 @@
 #include <algorithm>
 #include <cassert>
 #include "MichaelScottQueue.hpp"
-#include "CRTurnQueue.hpp"
+#include "LCRQueue.hpp"
 //#include "KoganPetrankQueueCHP.hpp"
 
 
@@ -349,17 +349,16 @@ public:
 public:
 
     static void allThroughputTests() {
-        vector<int> threadList = { 1, 2, 4, 8, 16, 24, 32 };
-        const int numRuns = 5;           // 5 runs for the paper
+        vector<int> threadList = { 1, 2, 4/*, 8, 16, 24, 32*/ };
+        const int numRuns = 2;           // 5 runs for the paper
 
         // Enq-Deq Throughput benchmarks
         for (int nThreads : threadList) {
-            const int numPairs = 100*1000000LL;
+            const int numPairs = 50'000'000LL;
             BenchmarkQ bench(nThreads);
             std::cout << "\n----- Enq-Deq Benchmark   numThreads=" << nThreads << "   numPairs=" << numPairs/1000000LL << "M -----\n";
-            bench.enqDeqBenchmark<MichaelScottQueue<UserData>>(numPairs, numRuns);
-            //bench.enqDeqBenchmark<KoganPetrankQueueCHP<UserData>>(numPairs, numRuns);
-            bench.enqDeqBenchmark<CRTurnQueue<UserData>>(numPairs, numRuns);
+//            bench.enqDeqBenchmark<LCRQueue<UserData>>(numPairs, numRuns);
+//            bench.enqDeqBenchmark<MichaelScottQueue<UserData>>(numPairs, numRuns);
         }
 
         // Burst Throughput benchmarks
@@ -368,9 +367,8 @@ public:
         for (int nThreads : threadList) {
             BenchmarkQ bench(nThreads);
             std::cout << "\n----- Burst Benchmark   numThreads=" << nThreads << "   burstSize=" << burstSize/1000LL << "K   numIters=" << numIters << " -----\n";
-            bench.burstBenchmark<MichaelScottQueue<UserData>>(burstSize, numIters, numRuns);
-            //bench.burstBenchmark<KoganPetrankQueueCHP<UserData>>(burstSize, numIters, numRuns);
-            bench.burstBenchmark<CRTurnQueue<UserData>>(burstSize, numIters, numRuns);
+//            bench.burstBenchmark<MichaelScottQueue<UserData>>(burstSize, numIters, numRuns);
+            bench.burstBenchmark<LCRQueue<UserData>>(burstSize, numIters, numRuns);
         }
     }
 };
