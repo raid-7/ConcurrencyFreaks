@@ -2,6 +2,7 @@
 #include <gtest/gtest.h>
 
 #include "FAAArrayQueue.hpp"
+#include "LPRQueue0.hpp"
 #include "LPRQueue2.hpp"
 #include "LCRQueue.hpp"
 
@@ -12,7 +13,7 @@ public:
     Q q{};
 };
 
-using QueuesToTest = ::testing::Types<FAAArrayQueue<int>, LCRQueue<int>, LPRQueue2<int>>;
+using QueuesToTest = ::testing::Types<FAAArrayQueue<int>, LCRQueue<int>, LPRQueue0<int>, LPRQueue2<int>>;
 TYPED_TEST_SUITE(QueueTest, QueuesToTest);
 
 

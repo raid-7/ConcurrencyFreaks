@@ -140,7 +140,7 @@ public:
     }
 
 
-    std::string className() { return "FAAArrayQueue"; }
+    static std::string className() { return "FAAArrayQueue"; }
 
 
     void enqueue(T* item, const int tid) {

@@ -106,7 +106,7 @@ public:
         delete head.load();            // Delete the last node
     }
 
-    std::string className() { return "MichaelScottQueue"; }
+    static std::string className() { return "MichaelScottQueue"; }
 
     void enqueue(T* item, const int tid) {
         if (item == nullptr) throw std::invalid_argument("item can not be nullptr");

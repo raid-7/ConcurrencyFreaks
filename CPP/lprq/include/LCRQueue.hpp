@@ -198,7 +198,7 @@ public:
         delete head.load();            // Delete the last node
     }
 
-    std::string className() { return "LCRQueue"; }
+    static std::string className() { return "LCRQueue"; }
 
 
     void enqueue(T* item, const int tid) {

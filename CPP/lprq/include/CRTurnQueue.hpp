@@ -173,7 +173,7 @@ public:
     }
 
 
-    std::string className() { return "CRTurnQueue"; }
+    static std::string className() { return "CRTurnQueue"; }
 
 
     /**
