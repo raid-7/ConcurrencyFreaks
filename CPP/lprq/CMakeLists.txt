@@ -7,7 +7,7 @@ find_package(Threads REQUIRED)
 include(Gtest.cmake)
 enable_testing()
 
-add_executable(bench src/benchmark.cpp)
+add_executable(bench src/benchmark.cpp src/AdditionalWork.cpp)
 target_link_libraries(bench PRIVATE Threads::Threads)
 target_include_directories(bench PRIVATE include/)
 target_compile_options(bench PRIVATE -Wall -Wextra)

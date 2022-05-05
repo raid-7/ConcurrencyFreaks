@@ -4,8 +4,6 @@
  *  Created on: Apr 23, 2016
  *      Author: pramalhe
  */
-#include <thread>
-#include <string>
 
 #include "BenchmarkQ.hpp"
 
