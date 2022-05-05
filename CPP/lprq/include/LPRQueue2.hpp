@@ -209,7 +209,7 @@ public:
                 // Solo enqueue (superfluous?)
                 newNode->tail.store(1, std::memory_order_relaxed);
                 newNode->array[0].val.store(item, std::memory_order_relaxed);
-                newNode->array[0].idx.store(0, std::memory_order_relaxed);
+                newNode->array[0].idx.store(RING_SIZE, std::memory_order_relaxed);
                 Node* nullnode = nullptr;
                 if (ltail->next.compare_exchange_strong(nullnode, newNode)) {// Insert new ring
                     tail.compare_exchange_strong(ltail, newNode); // Advance the tail
@@ -248,7 +248,7 @@ public:
         while (true) {
             Node* lhead = hp.protectPtr(kHpHead, head.load(), tid);
             if (lhead != head.load()) continue;
-            uint64_t headticket = lhead->head.fetch_add(1) + RING_SIZE;
+            uint64_t headticket = lhead->head.fetch_add(1);
             Cell* cell = &lhead->array[headticket & (RING_SIZE-1)];
 
             int r = 0;
@@ -260,11 +260,11 @@ public:
                 uint64_t idx = node_index(cell_idx);
                 void* val = cell->val.load();
 
-                if (idx > headticket)
+                if (idx > headticket + RING_SIZE)
                     break;
 
                 if (val != nullptr && !is_bottom(val)) {
-                    if (idx == headticket) {
+                    if (idx == headticket + RING_SIZE) {
                         cell->val.store(nullptr);
                         hp.clear(tid);
                         return static_cast<T*>(val);
@@ -286,12 +286,12 @@ public:
                     if (unsafe) { // Nothing to do, move along
                         if (is_bottom(val) && !cell->val.compare_exchange_strong(val, nullptr))
                             continue;
-                        if (cell->idx.compare_exchange_strong(cell_idx, unsafe | headticket))
+                        if (cell->idx.compare_exchange_strong(cell_idx, unsafe | (headticket + RING_SIZE)))
                             break;
                     } else if (t < headticket + 1 || r > 200000 || crq_closed) {
                         if (is_bottom(val) && !cell->val.compare_exchange_strong(val, nullptr))
                             continue;
-                        if (cell->idx.compare_exchange_strong(cell_idx, unsafe | headticket)) {
+                        if (cell->idx.compare_exchange_strong(cell_idx, unsafe | (headticket + RING_SIZE))) {
                             if (r > 200000 && tt > RING_SIZE)
                                 BIT_TEST_AND_SET(&lhead->tail, 63);
                             break;
