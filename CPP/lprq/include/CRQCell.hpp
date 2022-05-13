@@ -3,6 +3,7 @@
 #include <atomic>
 
 namespace detail {
+
 template<bool padded>
 struct Cell;
 
@@ -17,5 +18,5 @@ template<>
 struct Cell<false> {
     std::atomic<void*>    val;
     std::atomic<uint64_t> idx;
-};
+} __attribute__ ((aligned (16)));
 }
