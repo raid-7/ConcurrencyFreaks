@@ -6,11 +6,18 @@ set(CMAKE_CXX_STANDARD 20)
 find_package(Threads REQUIRED)
 include(Gtest.cmake)
 include(CLI11.cmake)
+
+# -- jemalloc
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(JEMALLOC jemalloc)
+pkg_search_module(JEMALLOC REQUIRED jemalloc)
+# jemalloc --
+
 enable_testing()
 
 add_executable(bench src/benchmark.cpp src/AdditionalWork.cpp)
-target_link_libraries(bench PRIVATE Threads::Threads CLI11::CLI11)
-target_include_directories(bench PRIVATE include/)
+target_link_libraries(bench PRIVATE Threads::Threads CLI11::CLI11 ${JEMALLOC_LIBRARIES})
+target_include_directories(bench PRIVATE include/ ${JEMALLOC_INCLUDE_DIRS})
 target_compile_options(bench PRIVATE -Wall -Wextra)
 
 add_executable(tests src/test.cpp)
