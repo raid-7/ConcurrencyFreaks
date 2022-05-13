@@ -383,7 +383,7 @@ public:
         ofstream csvFile("res.csv");
         writeThroughputCsvHeader(csvFile);
 
-        const int numRuns = 3;           // 5 runs for the paper
+        const int numRuns = 5;           // 5 runs for the paper
 
         // Enq-Deq Throughput benchmarks
         for (int additionalWork : additionalWorkList) {
