@@ -5,10 +5,11 @@ set(CMAKE_CXX_STANDARD 20)
 
 find_package(Threads REQUIRED)
 include(Gtest.cmake)
+include(CLI11.cmake)
 enable_testing()
 
 add_executable(bench src/benchmark.cpp src/AdditionalWork.cpp)
-target_link_libraries(bench PRIVATE Threads::Threads)
+target_link_libraries(bench PRIVATE Threads::Threads CLI11::CLI11)
 target_include_directories(bench PRIVATE include/)
 target_compile_options(bench PRIVATE -Wall -Wextra)
 

@@ -78,7 +78,7 @@ private:
     };
 
     // Performance benchmark constants
-    static const long long kNumPairsWarmup = 1'000'000LL;     // Each threads does 1M iterations as warmup
+    static const long long kNumPairsWarmup = 1'000'000LL;     // Each thread does 1M iterations as warmup
 
     // Contants for Ping-Pong performance benchmark
     static const int kPingPongBatch = 1000;            // Each thread starts by injecting 1k items in the queue
@@ -87,6 +87,7 @@ private:
     static const long long NSEC_IN_SEC = 1000000000LL;
 
     int numThreads;
+    double additionalWork;
 
 public:
     struct UserData {
@@ -110,9 +111,8 @@ public:
         }
     };
 
-    BenchmarkQ(int numThreads) {
-        this->numThreads = numThreads;
-    }
+    BenchmarkQ(int numThreads, double additionalWork)
+        :numThreads(numThreads), additionalWork(std::max(additionalWork, 0.5)) {}
 
 
     /**
@@ -137,7 +137,9 @@ public:
             auto startBeats = steady_clock::now();
             for (long long iter = 0; iter < numPairs / numThreads; iter++) {
                 queue->enqueue(&ud, tid);
+                random_additional_work(additionalWork);
                 if (queue->dequeue(tid) == nullptr) cout << "Error at measurement dequeueing iter=" << iter << "\n";
+                random_additional_work(additionalWork);
             }
             auto stopBeats = steady_clock::now();
             *delta = stopBeats - startBeats;
@@ -357,13 +359,13 @@ public:
 
     static void writeThroughputCsvHeader(std::ostream& stream) {
         // in JMH compatible format for uniform postprocessing
-        stream << "Benchmark,\"Param: queueType\",Threads,Score,\"Score Error\"\n";
+        stream << "Benchmark,\"Param: queueType\",Threads,\"Param: additionalWork\",Score,\"Score Error\"\n";
     }
 
     static void writeThroughputCsvData(std::ostream& stream,
                            const std::string_view benchmark, const std::string_view queue,
-                           const int numThreads, const Stats<long double> stats) {
-        stream << benchmark << ',' << queue << ',' << numThreads << ','
+                           const int numThreads, const double additionalWork, const Stats<long double> stats) {
+        stream << benchmark << ',' << queue << ',' << numThreads << ',' << static_cast<uint64_t>(additionalWork) << ','
                 << static_cast<uint64_t>(stats.mean) << ',' << static_cast<uint64_t>(stats.stddev) << '\n';
     }
 
@@ -372,38 +374,43 @@ public:
         auto res = enqDeqBenchmark<Q>(numPairs, numRuns);
         Stats<long double> sts = stats(res.begin(), res.end());
         printThroughputSummary(sts);
-        writeThroughputCsvData(csvFile, "enqDeqPairs", Q::className(), numThreads, sts);
+        writeThroughputCsvData(csvFile, "enqDeqPairs", Q::className(), numThreads, additionalWork, sts);
     }
 
 public:
 
-    static void allThroughputTests() {
+    static void allThroughputTests(const vector<int>& threadList, const vector<double>& additionalWorkList) {
         ofstream csvFile("res.csv");
         writeThroughputCsvHeader(csvFile);
 
-        vector<int> threadList = {1, 2, 4/*, 8, 16, 24, 32*/ };
         const int numRuns = 5;           // 5 runs for the paper
 
         // Enq-Deq Throughput benchmarks
-        for (int nThreads: threadList) {
-            const int numPairs = 10'000'000LL;
-            BenchmarkQ bench(nThreads);
-            std::cout << "\n----- Enq-Deq Benchmark   numThreads=" << nThreads << "   numPairs=" << numPairs / 1000000LL
-                      << "M -----\n";
-            bench.runEnqDeqBenchmark<LCRQueue<UserData>>(csvFile, numPairs, numRuns);
-            bench.runEnqDeqBenchmark<LPRQueue2<UserData>>(csvFile, numPairs, numRuns);
+        for (int additionalWork : additionalWorkList) {
+            for (int nThreads: threadList) {
+                const int numPairs = std::min(nThreads * 1'000'000, 10'000'000);
+
+                BenchmarkQ bench(nThreads, additionalWork);
+                std::cout << "\n----- Enq-Deq Benchmark   numThreads=" << nThreads << "   numPairs="
+                          << numPairs / 1000000LL << "M" << "   additionalWork=" << static_cast<uint64_t>(additionalWork)
+                          << " -----\n";
+                bench.runEnqDeqBenchmark<LCRQueue<UserData>>(csvFile, numPairs, numRuns);
+                bench.runEnqDeqBenchmark<LPRQueue2<UserData>>(csvFile, numPairs, numRuns);
+            }
         }
 
+        csvFile.close();
+
         // Burst Throughput benchmarks
-        const long long burstSize = 1000000LL;     // 1M for the paper
-        const int numIters = 100;                  // Number of iterations of 1M enqueues/dequeues
-        for (int nThreads: threadList) {
-            BenchmarkQ bench(nThreads);
-            std::cout << "\n----- Burst Benchmark   numThreads=" << nThreads << "   burstSize=" << burstSize / 1000LL
-                      << "K   numIters=" << numIters << " -----\n";
+//        const long long burstSize = 1000000LL;     // 1M for the paper
+//        const int numIters = 100;                  // Number of iterations of 1M enqueues/dequeues
+//        for (int nThreads: threadList) {
+//            BenchmarkQ bench(nThreads, 0.);
+//            std::cout << "\n----- Burst Benchmark   numThreads=" << nThreads << "   burstSize=" << burstSize / 1000LL
+//                      << "K   numIters=" << numIters << " -----\n";
 //            bench.burstBenchmark<MichaelScottQueue<UserData>>(burstSize, numIters, numRuns);
 //            bench.burstBenchmark<LCRQueue<UserData>>(burstSize, numIters, numRuns);
-        }
+//        }
     }
 };
 
