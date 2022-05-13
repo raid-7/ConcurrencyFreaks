@@ -354,7 +354,7 @@ public:
 
     static void printThroughputSummary(const Stats<long double> stats) {
         cout << "Mean Ops/sec = " << static_cast<uint64_t>(stats.mean)
-                << "; Stddev = " << static_cast<uint64_t>(stats.stddev) << "\n";
+                << "; Stddev = " << static_cast<uint64_t>(stats.stddev) << endl;
     }
 
     static void writeThroughputCsvHeader(std::ostream& stream) {
@@ -366,7 +366,7 @@ public:
                            const std::string_view benchmark, const std::string_view queue,
                            const int numThreads, const double additionalWork, const Stats<long double> stats) {
         stream << benchmark << ',' << queue << ',' << numThreads << ',' << static_cast<uint64_t>(additionalWork) << ','
-                << static_cast<uint64_t>(stats.mean) << ',' << static_cast<uint64_t>(stats.stddev) << '\n';
+                << static_cast<uint64_t>(stats.mean) << ',' << static_cast<uint64_t>(stats.stddev) << endl;
     }
 
     template<class Q>
@@ -383,7 +383,7 @@ public:
         ofstream csvFile("res.csv");
         writeThroughputCsvHeader(csvFile);
 
-        const int numRuns = 5;           // 5 runs for the paper
+        const int numRuns = 3;           // 5 runs for the paper
 
         // Enq-Deq Throughput benchmarks
         for (int additionalWork : additionalWorkList) {
@@ -393,7 +393,7 @@ public:
                 BenchmarkQ bench(nThreads, additionalWork);
                 std::cout << "\n----- Enq-Deq Benchmark   numThreads=" << nThreads << "   numPairs="
                           << numPairs / 1000000LL << "M" << "   additionalWork=" << static_cast<uint64_t>(additionalWork)
-                          << " -----\n";
+                          << " -----" << endl;
                 bench.runEnqDeqBenchmark<LCRQueue<UserData>>(csvFile, numPairs, numRuns);
                 bench.runEnqDeqBenchmark<LPRQueue2<UserData>>(csvFile, numPairs, numRuns);
             }
