@@ -9,7 +9,6 @@ include(CLI11.cmake)
 
 # -- jemalloc
 find_package(PkgConfig REQUIRED)
-pkg_check_modules(JEMALLOC jemalloc)
 pkg_search_module(JEMALLOC REQUIRED jemalloc)
 # jemalloc --
 
