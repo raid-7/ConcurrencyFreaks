@@ -41,6 +41,7 @@ struct Cell;
 template<class T>
 struct alignas(128) Cell<T, true> {
     std::atomic<T*> val;
+    uint64_t pad[15];
 };
 
 template<class T>
@@ -100,10 +101,10 @@ private:
     using Cell = faa_detail::Cell<T, padded_cells>;
 
     struct Node {
-        std::atomic<int>   deqidx;
-        Cell               items[BUFFER_SIZE];
-        std::atomic<int>   enqidx;
-        std::atomic<Node*> next;
+        alignas(128) std::atomic<int>   deqidx;
+        alignas(128) std::atomic<int>   enqidx;
+        alignas(128) std::atomic<Node*> next;
+        Cell                            items[BUFFER_SIZE];
 
         // Start with the first entry pre-filled and enqidx at 1
         Node(T* item) : deqidx{0}, enqidx{1}, next{nullptr} {
@@ -157,7 +158,10 @@ public:
     }
 
 
-    static std::string className() { return "FAAArrayQueue"; }
+    static std::string className() {
+        using namespace std::string_literals;
+        return "FAAArrayQueue"s + (padded_cells ? "/ca"s : ""s);
+    }
 
 
     void enqueue(T* item, const int tid) {

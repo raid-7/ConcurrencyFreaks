@@ -204,7 +204,10 @@ public:
         delete head.load();            // Delete the last node
     }
 
-    static std::string className() { return "LPRQueue0"; }
+    static std::string className() {
+        using namespace std::string_literals;
+        return "LPRQueue0"s + (padded_cells ? "/ca"s : ""s);
+    }
 
 
     void enqueue(T* item, const int tid) {
