@@ -31,6 +31,7 @@
 
 
 #include <atomic>
+#include "CRQCell.hpp"
 #include "HazardPointers.hpp"
 
 // CAS2 macro
@@ -90,18 +91,14 @@
  * @author Pedro Ramalhete
  * @author Andreia Correia
  */
-template<typename T>
+template<typename T, bool padded_cells = true>
 class LCRQueue {
 
 private:
     static const int RING_POW = 10;
     static const uint64_t RING_SIZE = 1ull << RING_POW;
 
-    struct Cell {
-        std::atomic<T*>       val;
-        std::atomic<uint64_t> idx;
-        uint64_t pad[14];
-    } __attribute__ ((aligned (128)));
+    using Cell = detail::Cell<padded_cells>;
 
     struct Node {
         std::atomic<int64_t> head  __attribute__ ((aligned (128)));
@@ -260,7 +257,7 @@ public:
                 uint64_t cell_idx = cell->idx.load();
                 uint64_t unsafe = node_unsafe(cell_idx);
                 uint64_t idx = node_index(cell_idx);
-                T* val = cell->val.load();
+                T* val = static_cast<T*>(cell->val.load());
 
                 if (idx > headticket) break;
 

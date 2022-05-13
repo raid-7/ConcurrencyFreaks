@@ -42,6 +42,7 @@
 #include "MichaelScottQueue.hpp"
 #include "FAAArrayQueue.hpp"
 #include "LCRQueue.hpp"
+#include "LPRQueue0.hpp"
 #include "LPRQueue2.hpp"
 
 
@@ -395,9 +396,10 @@ public:
                 std::cout << "\n----- Enq-Deq Benchmark   numThreads=" << nThreads << "   numPairs="
                           << numPairs / 1000000LL << "M" << "   additionalWork=" << static_cast<uint64_t>(additionalWork)
                           << " -----" << endl;
-                bench.runEnqDeqBenchmark<FAAArrayQueue<UserData>>(csvFile, numPairs, numRuns);
-                bench.runEnqDeqBenchmark<LCRQueue<UserData>>(csvFile, numPairs, numRuns);
-                bench.runEnqDeqBenchmark<LPRQueue2<UserData>>(csvFile, numPairs, numRuns);
+                bench.runEnqDeqBenchmark<FAAArrayQueue<UserData, false>>(csvFile, numPairs, numRuns);
+                bench.runEnqDeqBenchmark<LCRQueue<UserData, false>>(csvFile, numPairs, numRuns);
+                bench.runEnqDeqBenchmark<LPRQueue0<UserData, false>>(csvFile, numPairs, numRuns);
+                bench.runEnqDeqBenchmark<LPRQueue2<UserData, false>>(csvFile, numPairs, numRuns);
             }
         }
 

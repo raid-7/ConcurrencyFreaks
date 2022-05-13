@@ -34,6 +34,21 @@
 #include "HazardPointers.hpp"
 
 
+namespace faa_detail {
+template<class, bool>
+struct Cell;
+
+template<class T>
+struct alignas(128) Cell<T, true> {
+    std::atomic<T*> val;
+};
+
+template<class T>
+struct Cell<T, false> {
+    std::atomic<T*> val;
+};
+}
+
 /**
  * <h1> Fetch-And-Add Array Queue </h1>
  *
@@ -77,22 +92,24 @@
  * @author Pedro Ramalhete
  * @author Andreia Correia
  */
-template<typename T>
+template<typename T, bool padded_cells = true>
 class FAAArrayQueue {
     static const long BUFFER_SIZE = 1024;  // 1024
 
 private:
+    using Cell = faa_detail::Cell<T, padded_cells>;
+
     struct Node {
         std::atomic<int>   deqidx;
-        std::atomic<T*>    items[BUFFER_SIZE];
+        Cell               items[BUFFER_SIZE];
         std::atomic<int>   enqidx;
         std::atomic<Node*> next;
 
         // Start with the first entry pre-filled and enqidx at 1
         Node(T* item) : deqidx{0}, enqidx{1}, next{nullptr} {
-            items[0].store(item, std::memory_order_relaxed);
+            items[0].val.store(item, std::memory_order_relaxed);
             for (long i = 1; i < BUFFER_SIZE; i++) {
-                items[i].store(nullptr, std::memory_order_relaxed);
+                items[i].val.store(nullptr, std::memory_order_relaxed);
             }
         }
 
@@ -165,7 +182,7 @@ public:
                 continue;
             }
             T* itemnull = nullptr;
-            if (ltail->items[idx].compare_exchange_strong(itemnull, item)) {
+            if (ltail->items[idx].val.compare_exchange_strong(itemnull, item)) {
                 hp.clear(tid);
                 return;
             }
@@ -184,7 +201,7 @@ public:
                 if (casHead(lhead, lnext)) hp.retire(lhead, tid);
                 continue;
             }
-            T* item = lhead->items[idx].exchange(taken);
+            T* item = lhead->items[idx].val.exchange(taken);
             if (item == nullptr) continue;
             hp.clear(tid);
             return item;
