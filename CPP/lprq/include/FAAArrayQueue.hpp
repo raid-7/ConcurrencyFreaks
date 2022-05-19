@@ -197,6 +197,8 @@ public:
     T* dequeue(const int tid) {
         while (true) {
             Node* lhead = hp.protect(kHpHead, head, tid);
+            if (lhead->deqidx.load() >= lhead->enqidx.load() && lhead->next.load() == nullptr)
+                break;
             const int idx = lhead->deqidx.fetch_add(1);
             if (idx > BUFFER_SIZE-1) { // This node has been drained, check if there is another one
                 Node* lnext = lhead->next.load();

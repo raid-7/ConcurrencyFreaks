@@ -14,10 +14,15 @@ pkg_search_module(JEMALLOC REQUIRED jemalloc)
 
 enable_testing()
 
-add_executable(bench src/benchmark.cpp src/AdditionalWork.cpp)
-target_link_libraries(bench PRIVATE Threads::Threads CLI11::CLI11 ${JEMALLOC_LIBRARIES})
-target_include_directories(bench PRIVATE include/ ${JEMALLOC_INCLUDE_DIRS})
-target_compile_options(bench PRIVATE -Wall -Wextra)
+function(make_bench name sources)
+    add_executable("bench-${name}" ${sources})
+    target_link_libraries("bench-${name}" PRIVATE Threads::Threads CLI11::CLI11 ${JEMALLOC_LIBRARIES})
+    target_include_directories("bench-${name}" PRIVATE include/ ${JEMALLOC_INCLUDE_DIRS})
+    target_compile_options("bench-${name}" PRIVATE -Wall -Wextra)
+endfunction()
+
+make_bench(enq-deq "src/pairs-benchmark.cpp;src/AdditionalWork.cpp")
+make_bench(prod-cons "src/pc-benchmark.cpp;src/AdditionalWork.cpp")
 
 add_executable(tests src/test.cpp)
 target_link_libraries(tests PRIVATE Threads::Threads gtest_main)

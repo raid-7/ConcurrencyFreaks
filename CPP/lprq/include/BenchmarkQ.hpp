@@ -25,18 +25,19 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  ******************************************************************************
  */
-#ifndef _BENCHMARK_Q_H_
-#define _BENCHMARK_Q_H_
+#pragma once
 
 #include <atomic>
 #include <chrono>
 #include <thread>
+#include <barrier>
 #include <string>
 #include <optional>
 #include <vector>
 #include <algorithm>
 #include <cassert>
 #include <fstream>
+#include <sstream>
 #include <AdditionalWork.hpp>
 #include <Stats.hpp>
 #include "MichaelScottQueue.hpp"
@@ -50,13 +51,62 @@ using namespace std;
 using namespace chrono;
 
 
+namespace bench {
+namespace {
+static void printThroughputSummary(const Stats<long double> stats, const std::string_view unit) {
+    cout << "Mean " << unit << " = " << static_cast<uint64_t>(stats.mean)
+         << "; Stddev = " << static_cast<uint64_t>(stats.stddev) << endl;
+}
+
+static void writeThroughputCsvHeader(std::ostream& stream) {
+    // in JMH compatible format for uniform postprocessing
+    stream << "Benchmark,\"Param: queueType\",Threads,\"Param: additionalWork\",Score,\"Score Error\"\n";
+}
+
+static void writeThroughputCsvData(std::ostream& stream,
+                                   const std::string_view benchmark, const std::string_view queue,
+                                   const int numThreads, const double additionalWork, const Stats<long double> stats) {
+    stream << benchmark << ',' << queue << ',' << numThreads << ',' << static_cast<uint64_t>(additionalWork) << ','
+           << static_cast<uint64_t>(stats.mean) << ',' << static_cast<uint64_t>(stats.stddev) << endl;
+}
+
+static uint32_t gcd(uint32_t a, uint32_t b) {
+    if (a > 1) {
+        return gcd(b % a, a);
+    } else {
+        return b;
+    }
+}
+
+struct UserData {
+    long long seq;
+    int tid;
+
+    UserData(long long lseq, int ltid) {
+        this->seq = lseq;
+        this->tid = ltid;
+    }
+
+    UserData() {
+        this->seq = -2;
+        this->tid = -2;
+    }
+
+    UserData(const UserData& other) : seq(other.seq), tid(other.tid) {}
+
+    bool operator<(const UserData& other) const {
+        return seq < other.seq;
+    }
+};
+}
+
+
 /**
  *
  */
-class BenchmarkQ {
+class SymmetricBenchmarkQ {
 
 private:
-
     struct Result {
         nanoseconds nsEnq = 0ns;
         nanoseconds nsDeq = 0ns;
@@ -92,29 +142,8 @@ private:
     double additionalWork;
 
 public:
-    struct UserData {
-        long long seq;
-        int tid;
-
-        UserData(long long lseq, int ltid) {
-            this->seq = lseq;
-            this->tid = ltid;
-        }
-
-        UserData() {
-            this->seq = -2;
-            this->tid = -2;
-        }
-
-        UserData(const UserData& other) : seq(other.seq), tid(other.tid) {}
-
-        bool operator<(const UserData& other) const {
-            return seq < other.seq;
-        }
-    };
-
-    BenchmarkQ(int numThreads, double additionalWork)
-        :numThreads(numThreads), additionalWork(std::max(additionalWork, 0.5)) {}
+    SymmetricBenchmarkQ(int numThreads, double additionalWork)
+            : numThreads(numThreads), additionalWork(std::max(additionalWork, 0.5)) {}
 
 
     /**
@@ -354,28 +383,11 @@ public:
              << numThreads * (median.numEnq + median.numDeq) << "\n";
     }
 
-    static void printThroughputSummary(const Stats<long double> stats) {
-        cout << "Mean Ops/sec = " << static_cast<uint64_t>(stats.mean)
-                << "; Stddev = " << static_cast<uint64_t>(stats.stddev) << endl;
-    }
-
-    static void writeThroughputCsvHeader(std::ostream& stream) {
-        // in JMH compatible format for uniform postprocessing
-        stream << "Benchmark,\"Param: queueType\",Threads,\"Param: additionalWork\",Score,\"Score Error\"\n";
-    }
-
-    static void writeThroughputCsvData(std::ostream& stream,
-                           const std::string_view benchmark, const std::string_view queue,
-                           const int numThreads, const double additionalWork, const Stats<long double> stats) {
-        stream << benchmark << ',' << queue << ',' << numThreads << ',' << static_cast<uint64_t>(additionalWork) << ','
-                << static_cast<uint64_t>(stats.mean) << ',' << static_cast<uint64_t>(stats.stddev) << endl;
-    }
-
     template<class Q>
     void runEnqDeqBenchmark(std::ostream& csvFile, int numPairs, int numRuns) {
         auto res = enqDeqBenchmark<Q>(numPairs, numRuns);
         Stats<long double> sts = stats(res.begin(), res.end());
-        printThroughputSummary(sts);
+        printThroughputSummary(sts, "ops/sec");
         writeThroughputCsvData(csvFile, "enqDeqPairs", Q::className(), numThreads, additionalWork, sts);
     }
 
@@ -388,13 +400,14 @@ public:
         const int numRuns = 5;           // 5 runs for the paper
 
         // Enq-Deq Throughput benchmarks
-        for (int additionalWork : additionalWorkList) {
+        for (double additionalWork: additionalWorkList) {
             for (int nThreads: threadList) {
                 const int numPairs = std::min(nThreads * 1'000'000, 10'000'000);
 
-                BenchmarkQ bench(nThreads, additionalWork);
+                SymmetricBenchmarkQ bench(nThreads, additionalWork);
                 std::cout << "\n----- Enq-Deq Benchmark   numThreads=" << nThreads << "   numPairs="
-                          << numPairs / 1000000LL << "M" << "   additionalWork=" << static_cast<uint64_t>(additionalWork)
+                          << numPairs / 1000000LL << "M" << "   additionalWork="
+                          << static_cast<uint64_t>(additionalWork)
                           << " -----" << endl;
                 bench.runEnqDeqBenchmark<FAAArrayQueue<UserData, false>>(csvFile, numPairs, numRuns);
                 bench.runEnqDeqBenchmark<LCRQueue<UserData, false>>(csvFile, numPairs, numRuns);
@@ -418,4 +431,176 @@ public:
     }
 };
 
-#endif
+/**
+ *
+ */
+class ProducerConsumerBenchmarkQ {
+
+private:
+    // Performance benchmark constants
+    static const long long kNumPairsWarmup = 1'000'000LL;     // Each thread does 1M iterations as warmup
+
+    static const long long NSEC_IN_SEC = 1000000000LL;
+
+    int numProducers, numConsumers;
+    double additionalWork;
+    double producerAdditionalWork{}, consumerAdditionalWork{};
+
+public:
+    ProducerConsumerBenchmarkQ(int numProducers, int numConsumers,
+                               double additionalWork, bool balancedLoad)
+            : numProducers(numProducers), numConsumers(numConsumers), additionalWork(additionalWork) {
+        if (balancedLoad) {
+            int total = numProducers + numConsumers;
+            double ref = additionalWork * 2 / total;
+            producerAdditionalWork = numProducers * ref;
+            consumerAdditionalWork = numConsumers * ref;
+        } else {
+            producerAdditionalWork = additionalWork;
+            consumerAdditionalWork = additionalWork;
+        }
+    }
+
+
+    /**
+     * enqueue-dequeue pairs: in each iteration a thread executes an enqueue followed by a dequeue;
+     * the benchmark executes 10^8 pairs partitioned evenly among all threads;
+     */
+    template<typename Q>
+    vector<long double> producerConsumerBenchmark(const milliseconds runDuration, const int numRuns) {
+        uint32_t transferredCount[numConsumers][numRuns];
+        nanoseconds deltas[numRuns];
+        Q* queue = nullptr;
+        barrier<> barrier(numProducers + numConsumers + 1);
+        std::atomic<bool> stopFlag{false};
+
+        auto prod_lambda = [this, &stopFlag, &queue, &barrier](const int tid) {
+            UserData ud(0, 0);
+
+            barrier.arrive_and_wait();
+            // Warmup phase
+            for (long long iter = 0; iter < kNumPairsWarmup / numProducers; iter++) {
+                queue->enqueue(&ud, tid);
+            }
+
+            barrier.arrive_and_wait();
+            // Measurement phase
+            while (!stopFlag.load()) {
+                queue->enqueue(&ud, tid);
+                random_additional_work(producerAdditionalWork);
+            }
+        };
+
+        auto cons_lambda = [this, &stopFlag, &queue, &barrier](uint32_t* cnt, const int tid) {
+            barrier.arrive_and_wait();
+            // Warmup phase
+            for (long long iter = 0; iter < kNumPairsWarmup / numConsumers + 1; iter++) {
+                UserData* d = queue->dequeue(tid);
+                if (d != nullptr && d->seq > 0)
+                    // side effect to prevent DCE
+                    cout << "This message must never appear; " << iter << "\n";
+            }
+
+            uint32_t deqCount = 0;
+            barrier.arrive_and_wait();
+            // Measurement phase
+            while (!stopFlag.load()) {
+                UserData* d = queue->dequeue(tid);
+                if (d != nullptr) {
+                    ++deqCount;
+                    if (d->seq > 0)
+                        // side effect to prevent DCE
+                        cout << "This message must never appear \n";
+                }
+            }
+
+            *cnt = deqCount;
+        };
+
+        cout << "##### " << Q::className() << " #####  \n";
+        for (int irun = 0; irun < numRuns; irun++) {
+            queue = new Q(numProducers + numConsumers);
+            thread prodConsThreads[numProducers + numConsumers];
+            for (int tid = 0; tid < numProducers; tid++)
+                prodConsThreads[tid] = thread(prod_lambda, tid);
+            for (int tid = numProducers; tid < numProducers + numConsumers; tid++)
+                prodConsThreads[tid] = thread(cons_lambda, &transferredCount[tid - numProducers][irun], tid);
+
+            barrier.arrive_and_wait(); // start warmup
+            barrier.arrive_and_wait(); // start measurements
+            auto startAll = steady_clock::now();
+            std::this_thread::sleep_for(runDuration);
+            stopFlag.store(true);
+            auto endAll = steady_clock::now();
+
+            deltas[irun] = duration_cast<nanoseconds>(endAll - startAll);
+
+            for (int tid = 0; tid < numProducers + numConsumers; tid++) {
+                prodConsThreads[tid].join();
+            }
+            delete (Q*) queue;
+        }
+
+        // Sum up all the time deltas of all threads so we can find the median run
+        vector<long double> transfersPerSec(numRuns);
+        for (int irun = 0; irun < numRuns; irun++) {
+            uint32_t totalCount = 0;
+            for (int tid = 0; tid < numConsumers; tid++) {
+                totalCount += transferredCount[tid][irun];
+            }
+
+            transfersPerSec[irun] = static_cast<long double>(totalCount * NSEC_IN_SEC) / deltas[irun].count();
+        }
+
+        return transfersPerSec;
+    }
+
+    template<class Q>
+    void runProducerConsumerBenchmark(std::ostream& csvFile, milliseconds runDuration, int numRuns) {
+        auto res = producerConsumerBenchmark<Q>(runDuration, numRuns);
+        Stats<long double> sts = stats(res.begin(), res.end());
+        printThroughputSummary(sts, "transfers/sec");
+
+        uint32_t prodConsGcd = gcd(numProducers, numConsumers);
+        uint32_t prodRatio = numProducers / prodConsGcd;
+        uint32_t consRatio = numConsumers / prodConsGcd;
+        ostringstream benchName{};
+        benchName << "producerConsumer[" << prodRatio << '/' << consRatio;
+        if (producerAdditionalWork != consumerAdditionalWork) {
+            benchName << ";balanced";
+        }
+        benchName << "]";
+
+        writeThroughputCsvData(csvFile, benchName.str(), Q::className(), numProducers + numConsumers, additionalWork, sts);
+    }
+
+public:
+
+    static void allThroughputTests(const vector<pair<int, int>>& threadList,
+                                   const vector<double>& additionalWorkList,
+                                   const bool balancedLoad) {
+        ofstream csvFile("res.csv");
+        writeThroughputCsvHeader(csvFile);
+
+        const int numRuns = 5;           // 5 runs for the paper
+        const milliseconds runDuration = 1000ms;
+
+        for (double additionalWork: additionalWorkList) {
+            for (auto [numProducers, numConsumers] : threadList) {
+                ProducerConsumerBenchmarkQ bench(numProducers, numConsumers, additionalWork, balancedLoad);
+                std::cout << "\n----- Enq-Deq Benchmark   numProducers=" << numProducers << "   numConsumers="
+                          << numConsumers << "   runDuration=" << runDuration.count() << "ms" << "   additionalWork="
+                          << static_cast<uint64_t>(additionalWork) << "   balancedLoad=" << std::boolalpha << balancedLoad
+                          << " -----" << endl;
+                bench.runProducerConsumerBenchmark<FAAArrayQueue<UserData, false>>(csvFile, runDuration, numRuns);
+                bench.runProducerConsumerBenchmark<LCRQueue<UserData, false>>(csvFile, runDuration, numRuns);
+                bench.runProducerConsumerBenchmark<LPRQueue0<UserData, false>>(csvFile, runDuration, numRuns);
+                bench.runProducerConsumerBenchmark<LPRQueue2<UserData, false>>(csvFile, runDuration, numRuns);
+            }
+        }
+
+        csvFile.close();
+    }
+};
+
+}

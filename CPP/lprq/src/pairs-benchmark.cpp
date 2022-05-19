@@ -25,7 +25,7 @@ int main(int argc, char *argv[]){
 
     CLI11_PARSE(app, argc, argv);
 
-    BenchmarkQ::allThroughputTests(numThreads, additionalWork);
+    bench::SymmetricBenchmarkQ::allThroughputTests(numThreads, additionalWork);
     return 0;
 }
 
