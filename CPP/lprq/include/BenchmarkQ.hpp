@@ -555,8 +555,6 @@ public:
             transfersPerSec[irun] = static_cast<long double>(totalCount * NSEC_IN_SEC) / deltas[irun].count();
         }
 
-        cout << "-----------------" << endl;
-
         return transfersPerSec;
     }
 
