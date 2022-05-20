@@ -11,33 +11,12 @@
 #include <CLI/Config.hpp>
 
 
-struct ThreadGroupConfiguration {
-    uint32_t producers;
-    uint32_t consumers;
-
-    explicit operator std::pair<int, int>() {
-        return {producers, consumers};
-    }
-};
-
-std::istream& operator>>(std::istream& in, ThreadGroupConfiguration& val) {
-    char c;
-    in >> val.producers >> c >> val.consumers;
-    if (c != ':') {
-        throw CLI::ConversionError("Invalid thread group configuration");
-    }
-    return in;
-}
-
-
 // g++ -std=c++14 main.cpp -I../include
 int main(int argc, char *argv[]){
     CLI::App app{"Queue benchmarks"};
 
     std::vector<std::pair<int, int>> numThreads = { {1, 1} };
-    app.add_option<std::vector<std::pair<int, int>>, ThreadGroupConfiguration>(
-            "-t,--thread-groups", numThreads,
-            "Number of threads in format numProducers:numConsumers");
+    app.add_option("-t,--thread-groups", numThreads, "Number of threads");
 
     std::vector<double> additionalWork = { 0.0 };
     app.add_option("-w,--work", additionalWork, "Additional work")
