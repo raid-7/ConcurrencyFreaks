@@ -20,7 +20,6 @@ struct ThreadGroupConfiguration {
     }
 };
 
-namespace CLI {
 std::istream& operator>>(std::istream& in, ThreadGroupConfiguration& val) {
     char c;
     in >> val.producers >> c >> val.consumers;
@@ -29,7 +28,7 @@ std::istream& operator>>(std::istream& in, ThreadGroupConfiguration& val) {
     }
     return in;
 }
-}
+
 
 // g++ -std=c++14 main.cpp -I../include
 int main(int argc, char *argv[]){
