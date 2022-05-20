@@ -528,6 +528,7 @@ public:
             for (int tid = numProducers; tid < numProducers + numConsumers; tid++)
                 prodConsThreads[tid] = thread(cons_lambda, &transferredCount[tid - numProducers][irun], tid);
 
+            stopFlag.store(false);
             barrier.arrive_and_wait(); // start warmup
             barrier.arrive_and_wait(); // start measurements
             auto startAll = steady_clock::now();
@@ -553,6 +554,8 @@ public:
 
             transfersPerSec[irun] = static_cast<long double>(totalCount * NSEC_IN_SEC) / deltas[irun].count();
         }
+
+        cout << "-----------------" << endl;
 
         return transfersPerSec;
     }
