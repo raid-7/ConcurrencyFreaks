@@ -21,7 +21,7 @@ struct ThreadGroupConfiguration {
 };
 
 namespace CLI {
-std::istringstream& operator>>(std::istringstream& in, ThreadGroupConfiguration& val) {
+std::istream& operator>>(std::istream& in, ThreadGroupConfiguration& val) {
     char c;
     in >> val.producers >> c >> val.consumers;
     if (c != ':') {
