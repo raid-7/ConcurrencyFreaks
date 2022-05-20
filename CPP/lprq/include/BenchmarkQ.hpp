@@ -492,6 +492,8 @@ public:
         };
 
         auto cons_lambda = [this, &stopFlag, &queue, &barrier](uint32_t* cnt, const int tid) {
+            UserData dummy;
+
             barrier.arrive_and_wait();
             // Warmup phase
             for (long long iter = 0; iter < kNumPairsWarmup / numConsumers + 1; iter++) {
@@ -508,9 +510,9 @@ public:
                 UserData* d = queue->dequeue(tid);
                 if (d != nullptr) {
                     ++deqCount;
-                    if (d->seq > 0)
+                    if (d == &dummy)
                         // side effect to prevent DCE
-                        cout << "This message must never appear \n";
+                        cout << "This message will never appear \n";
                 }
             }
 
