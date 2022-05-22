@@ -1,19 +1,14 @@
-/*
- * main.cpp
- *
- *  Created on: Apr 23, 2016
- *      Author: pramalhe
- */
-
 #include "BenchmarkQ.hpp"
 #include <CLI/App.hpp>
 #include <CLI/Formatter.hpp>
 #include <CLI/Config.hpp>
 
 
-// g++ -std=c++14 main.cpp -I../include
 int main(int argc, char *argv[]){
     CLI::App app{"Queue benchmarks"};
+
+    std::string csvFilename = "res.csv";
+    app.add_option("-f,--file", csvFilename, "File to export measurement results");
 
     std::vector<std::pair<int, int>> numThreads = { {1, 1} };
     app.add_option("-t,--thread-groups", numThreads, "Number of threads");
@@ -27,7 +22,7 @@ int main(int argc, char *argv[]){
 
     CLI11_PARSE(app, argc, argv);
 
-    bench::ProducerConsumerBenchmarkQ::allThroughputTests(numThreads, additionalWork, balancedLoad);
+    bench::ProducerConsumerBenchmarkQ::allThroughputTests(csvFilename, numThreads, additionalWork, balancedLoad);
     return 0;
 }
 

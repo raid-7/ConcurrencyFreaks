@@ -71,10 +71,10 @@ static void writeThroughputCsvData(std::ostream& stream,
 }
 
 static uint32_t gcd(uint32_t a, uint32_t b) {
-    if (a > 1) {
-        return gcd(b % a, a);
+    if (b == 0) {
+        return a;
     } else {
-        return b;
+        return gcd(b, a % b);
     }
 }
 
@@ -393,8 +393,9 @@ public:
 
 public:
 
-    static void allThroughputTests(const vector<int>& threadList, const vector<double>& additionalWorkList) {
-        ofstream csvFile("res.csv");
+    static void allThroughputTests(const std::string& csvFilename,
+                                   const vector<int>& threadList, const vector<double>& additionalWorkList) {
+        ofstream csvFile(csvFilename);
         writeThroughputCsvHeader(csvFile);
 
         const int numRuns = 5;           // 5 runs for the paper
@@ -405,7 +406,7 @@ public:
                 const int numPairs = std::min(nThreads * 1'000'000, 10'000'000);
 
                 SymmetricBenchmarkQ bench(nThreads, additionalWork);
-                std::cout << "\n----- Enq-Deq Benchmark   numThreads=" << nThreads << "   numPairs="
+                cout << "\n----- Enq-Deq Benchmark   numThreads=" << nThreads << "   numPairs="
                           << numPairs / 1000000LL << "M" << "   additionalWork="
                           << static_cast<uint64_t>(additionalWork)
                           << " -----" << endl;
@@ -579,10 +580,11 @@ public:
 
 public:
 
-    static void allThroughputTests(const vector<pair<int, int>>& threadList,
+    static void allThroughputTests(const std::string& csvFilename,
+                                   const vector<pair<int, int>>& threadList,
                                    const vector<double>& additionalWorkList,
                                    const bool balancedLoad) {
-        ofstream csvFile("res.csv");
+        ofstream csvFile(csvFilename);
         writeThroughputCsvHeader(csvFile);
 
         const int numRuns = 5;           // 5 runs for the paper
@@ -591,7 +593,7 @@ public:
         for (double additionalWork: additionalWorkList) {
             for (auto [numProducers, numConsumers] : threadList) {
                 ProducerConsumerBenchmarkQ bench(numProducers, numConsumers, additionalWork, balancedLoad);
-                std::cout << "\n----- Enq-Deq Benchmark   numProducers=" << numProducers << "   numConsumers="
+                cout << "\n----- Enq-Deq Benchmark   numProducers=" << numProducers << "   numConsumers="
                           << numConsumers << "   runDuration=" << runDuration.count() << "ms" << "   additionalWork="
                           << static_cast<uint64_t>(additionalWork) << "   balancedLoad=" << std::boolalpha << balancedLoad
                           << " -----" << endl;
