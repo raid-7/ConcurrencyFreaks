@@ -247,9 +247,35 @@ public:
 
 
     T* dequeue(const int tid) {
+        Node* lhead = hp.protectPtr(kHpHead, head.load(), tid);
+        bool firstIteration = true;
         while (true) {
-            Node* lhead = hp.protectPtr(kHpHead, head.load(), tid);
-            if (lhead != head.load()) continue;
+            Node* lhead2 = head.load();
+            if (lhead != lhead2) {
+                lhead = hp.protectPtr(kHpHead, lhead2, tid);
+                continue;
+            }
+            if (tail_index(lhead->tail.load()) <= (uint64_t)lhead->head.load()) {
+                if (!firstIteration)
+                    fixState(lhead);
+                // try to return empty
+                Node* lnext = lhead->next.load();
+                if (lnext == nullptr) {
+                    hp.clear(tid);
+                    return nullptr;  // Queue is empty
+                }
+
+                if (head.compare_exchange_strong(lhead, lnext)) {
+                    hp.retire(lhead, tid);
+                    lhead = hp.protect(kHpHead, lnext, tid);
+                } else {
+                    lhead = hp.protect(kHpHead, lhead, tid);
+                }
+
+                continue;
+            }
+
+            firstIteration = false;
             uint64_t headticket = lhead->head.fetch_add(1);
             Cell* cell = &lhead->array[headticket & (RING_SIZE-1)];
 
@@ -289,19 +315,6 @@ public:
                     } else {
                         ++r;
                     }
-                }
-            }
-
-            if (tail_index(lhead->tail.load()) <= headticket + 1) {
-                fixState(lhead);
-                // try to return empty
-                Node* lnext = lhead->next.load();
-                if (lnext == nullptr) {
-                    hp.clear(tid);
-                    return nullptr;  // Queue is empty
-                }
-                if (tail_index(lhead->tail) <= headticket + 1) {
-                    if (head.compare_exchange_strong(lhead, lnext)) hp.retire(lhead, tid);
                 }
             }
         }
