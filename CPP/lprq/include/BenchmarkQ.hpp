@@ -40,6 +40,7 @@
 #include <sstream>
 #include <AdditionalWork.hpp>
 #include <Stats.hpp>
+#include "MetaprogrammingUtils.hpp"
 #include "MichaelScottQueue.hpp"
 #include "FAAArrayQueue.hpp"
 #include "LCRQueue.hpp"
@@ -52,7 +53,20 @@ using namespace chrono;
 
 
 namespace bench {
+/*
+ * We want to keep ring size as compile-time constant for queue implementations, because it enables us to store
+ * the array of cells in a node without additional indirection. But we also want to experiment with different
+ * ring sizes. To make it possible we define ring size as a queue implementation template parameter and instantiate
+ * each queue for all possible ring sizes at compile-time. Then we use a bit of metaprogramming to choose
+ * the right instance at runtime.
+ *
+ * The drawback of this approach is a radical increase in compilation time :(
+ * This drawback can be mitigated if we make possible ring sizes configurable with cmake.
+ */
+using RingSizes = mpg::Constants<size_t>::Parameters<16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384>;
+
 namespace {
+
 static void printThroughputSummary(const Stats<long double> stats, const std::string_view unit) {
     cout << "Mean " << unit << " = " << static_cast<uint64_t>(stats.mean)
          << "; Stddev = " << static_cast<uint64_t>(stats.stddev) << endl;
@@ -60,14 +74,17 @@ static void printThroughputSummary(const Stats<long double> stats, const std::st
 
 static void writeThroughputCsvHeader(std::ostream& stream) {
     // in JMH compatible format for uniform postprocessing
-    stream << "Benchmark,\"Param: queueType\",Threads,\"Param: additionalWork\",Score,\"Score Error\"\n";
+    stream << "Benchmark,\"Param: queueType\",Threads,\"Param: additionalWork\",\"Param: ringSize\","
+           << "Score,\"Score Error\"\n";
 }
 
 static void writeThroughputCsvData(std::ostream& stream,
                                    const std::string_view benchmark, const std::string_view queue,
-                                   const int numThreads, const double additionalWork, const Stats<long double> stats) {
+                                   const int numThreads, const double additionalWork, const size_t ringSize,
+                                   const Stats<long double> stats) {
     stream << benchmark << ',' << queue << ',' << numThreads << ',' << static_cast<uint64_t>(additionalWork) << ','
-           << static_cast<uint64_t>(stats.mean) << ',' << static_cast<uint64_t>(stats.stddev) << endl;
+           << ringSize << ',' << static_cast<uint64_t>(stats.mean) << ',' << static_cast<uint64_t>(stats.stddev)
+           << endl;
 }
 
 static uint32_t gcd(uint32_t a, uint32_t b) {
@@ -388,13 +405,15 @@ public:
         auto res = enqDeqBenchmark<Q>(numPairs, numRuns);
         Stats<long double> sts = stats(res.begin(), res.end());
         printThroughputSummary(sts, "ops/sec");
-        writeThroughputCsvData(csvFile, "enqDeqPairs", Q::className(), numThreads, additionalWork, sts);
+        writeThroughputCsvData(csvFile, "enqDeqPairs", Q::className(), numThreads, additionalWork, Q::RING_SIZE, sts);
     }
 
 public:
 
     static void allThroughputTests(const std::string& csvFilename,
-                                   const vector<int>& threadList, const vector<double>& additionalWorkList) {
+                                   const vector<int>& threadList,
+                                   const vector<double>& additionalWorkList,
+                                   const vector<size_t>& ringSizeList) {
         ofstream csvFile(csvFilename);
         writeThroughputCsvHeader(csvFile);
 
@@ -406,14 +425,21 @@ public:
                 const int numPairs = std::min(nThreads * 1'000'000, 10'000'000);
 
                 SymmetricBenchmarkQ bench(nThreads, additionalWork);
-                cout << "\n----- Enq-Deq Benchmark   numThreads=" << nThreads << "   numPairs="
-                          << numPairs / 1000000LL << "M" << "   additionalWork="
-                          << static_cast<uint64_t>(additionalWork)
-                          << " -----" << endl;
-                bench.runEnqDeqBenchmark<FAAArrayQueue<UserData, false>>(csvFile, numPairs, numRuns);
-                bench.runEnqDeqBenchmark<LCRQueue<UserData, false>>(csvFile, numPairs, numRuns);
-                bench.runEnqDeqBenchmark<LPRQueue0<UserData, false>>(csvFile, numPairs, numRuns);
-                bench.runEnqDeqBenchmark<LPRQueue2<UserData, false>>(csvFile, numPairs, numRuns);
+                for (size_t ringSize : ringSizeList) {
+                    RingSizes::apply<void>(ringSize, [&](auto sizeConst) {
+                        constexpr size_t RING_SIZE = decltype(sizeConst)::value;
+
+                        cout << "\n----- Enq-Deq Benchmark   numThreads=" << nThreads << "   numPairs="
+                             << numPairs / 1000000LL << "M" << "   additionalWork="
+                             << static_cast<uint64_t>(additionalWork) <<  "   ringSize=" << RING_SIZE
+                             << " -----" << endl;
+
+                        bench.runEnqDeqBenchmark<FAAArrayQueue<UserData, false, RING_SIZE>>(csvFile, numPairs, numRuns);
+                        bench.runEnqDeqBenchmark<LCRQueue<UserData, false, RING_SIZE>>(csvFile, numPairs, numRuns);
+                        bench.runEnqDeqBenchmark<LPRQueue0<UserData, false, RING_SIZE>>(csvFile, numPairs, numRuns);
+                        bench.runEnqDeqBenchmark<LPRQueue2<UserData, false, RING_SIZE>>(csvFile, numPairs, numRuns);
+                    });
+                }
             }
         }
 
@@ -575,14 +601,15 @@ public:
         }
         benchName << "]";
 
-        writeThroughputCsvData(csvFile, benchName.str(), Q::className(), numProducers + numConsumers, additionalWork, sts);
+        writeThroughputCsvData(csvFile, benchName.str(), Q::className(),
+                               numProducers + numConsumers, additionalWork, Q::RING_SIZE, sts);
     }
 
 public:
-
     static void allThroughputTests(const std::string& csvFilename,
                                    const vector<pair<int, int>>& threadList,
                                    const vector<double>& additionalWorkList,
+                                   const vector<size_t>& ringSizeList,
                                    const bool balancedLoad) {
         ofstream csvFile(csvFilename);
         writeThroughputCsvHeader(csvFile);
@@ -591,16 +618,26 @@ public:
         const milliseconds runDuration = 1000ms;
 
         for (double additionalWork: additionalWorkList) {
-            for (auto [numProducers, numConsumers] : threadList) {
+            for (auto numProdCons : threadList) {
+                auto numProducers = numProdCons.first;
+                auto numConsumers = numProdCons.second;
                 ProducerConsumerBenchmarkQ bench(numProducers, numConsumers, additionalWork, balancedLoad);
-                cout << "\n----- Enq-Deq Benchmark   numProducers=" << numProducers << "   numConsumers="
-                          << numConsumers << "   runDuration=" << runDuration.count() << "ms" << "   additionalWork="
-                          << static_cast<uint64_t>(additionalWork) << "   balancedLoad=" << std::boolalpha << balancedLoad
-                          << " -----" << endl;
-                bench.runProducerConsumerBenchmark<FAAArrayQueue<UserData, false>>(csvFile, runDuration, numRuns);
-                bench.runProducerConsumerBenchmark<LCRQueue<UserData, false>>(csvFile, runDuration, numRuns);
-                bench.runProducerConsumerBenchmark<LPRQueue0<UserData, false>>(csvFile, runDuration, numRuns);
-                bench.runProducerConsumerBenchmark<LPRQueue2<UserData, false>>(csvFile, runDuration, numRuns);
+                for (size_t ringSize : ringSizeList) {
+                    RingSizes::apply<void>(ringSize, [&](auto sizeConst) {
+                        constexpr size_t RING_SIZE = decltype(sizeConst)::value;
+
+                        cout << "\n----- Producer-Consumer Benchmark   numProducers=" << numProducers
+                             << "   numConsumers=" << numConsumers << "   runDuration=" << runDuration.count() << "ms"
+                             << "   additionalWork=" << static_cast<uint64_t>(additionalWork) << "   balancedLoad="
+                             << std::boolalpha << balancedLoad <<  "   ringSize=" << RING_SIZE
+                             << " -----" << endl;
+
+                        bench.runProducerConsumerBenchmark<FAAArrayQueue<UserData, false, RING_SIZE>>(csvFile, runDuration, numRuns);
+                        bench.runProducerConsumerBenchmark<LCRQueue<UserData, false, RING_SIZE>>(csvFile, runDuration, numRuns);
+                        bench.runProducerConsumerBenchmark<LPRQueue0<UserData, false, RING_SIZE>>(csvFile, runDuration, numRuns);
+                        bench.runProducerConsumerBenchmark<LPRQueue2<UserData, false, RING_SIZE>>(csvFile, runDuration, numRuns);
+                    });
+                }
             }
         }
 

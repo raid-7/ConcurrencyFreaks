@@ -17,12 +17,17 @@ int main(int argc, char *argv[]){
     app.add_option("-w,--work", additionalWork, "Additional work")
         ->check(CLI::NonNegativeNumber);
 
+    std::vector<size_t> ringSizes = { 1024 };
+    app.add_option("-r,--ring-size", ringSizes, "Ring size")
+            ->check(CLI::IsMember(bench::RingSizes::Values));
+
     bool balancedLoad = false;
     app.add_flag("-b,--balanced-load", balancedLoad, "Balanced load");
 
     CLI11_PARSE(app, argc, argv);
 
-    bench::ProducerConsumerBenchmarkQ::allThroughputTests(csvFilename, numThreads, additionalWork, balancedLoad);
+    bench::ProducerConsumerBenchmarkQ::allThroughputTests(csvFilename, numThreads, additionalWork, ringSizes,
+                                                          balancedLoad);
     return 0;
 }
 

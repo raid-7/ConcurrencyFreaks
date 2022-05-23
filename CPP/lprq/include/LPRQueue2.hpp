@@ -72,20 +72,17 @@
  * @author Andreia Correia
  * @autor Raed Romanov
  */
-template<typename T, bool padded_cells = true>
+template<typename T, bool padded_cells = true, size_t ring_size = 1024>
 class LPRQueue2 {
 
 private:
-    static const int RING_POW = 10;
-    static const uint64_t RING_SIZE = 1ull << RING_POW;
-
     using Cell = detail::Cell<padded_cells>;
 
     struct Node {
         std::atomic<int64_t> head  __attribute__ ((aligned (128)));
         std::atomic<int64_t> tail  __attribute__ ((aligned (128)));
         std::atomic<Node*> next    __attribute__ ((aligned (128)));
-        Cell array[RING_SIZE];
+        Cell array[ring_size];
 
         Node() {
             for (unsigned i = 0; i < RING_SIZE; i++) {
@@ -171,6 +168,8 @@ private:
 
 
 public:
+    static constexpr size_t RING_SIZE = ring_size;
+
     LPRQueue2(int maxThreads=MAX_THREADS) : maxThreads{maxThreads} {
         // Shared object init
         Node *sentinel = new Node;

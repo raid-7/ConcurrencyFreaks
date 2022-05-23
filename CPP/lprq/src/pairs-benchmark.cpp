@@ -1,8 +1,11 @@
+#include "MetaprogrammingUtils.hpp"
 #include "BenchmarkQ.hpp"
 #include <CLI/App.hpp>
 #include <CLI/Formatter.hpp>
 #include <CLI/Config.hpp>
 
+
+using RingSizes = mpg::Constants<size_t>::Parameters<16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384>;
 
 int main(int argc, char *argv[]){
     CLI::App app{"Queue benchmarks"};
@@ -18,9 +21,14 @@ int main(int argc, char *argv[]){
     app.add_option("-w,--work", additionalWork, "Additional work")
         ->check(CLI::NonNegativeNumber);
 
+    std::vector<size_t> ringSizes = { 1024 };
+    app.add_option("-r,--ring-size", ringSizes, "Ring size")
+        ->check(CLI::IsMember(bench::RingSizes::Values));
+
     CLI11_PARSE(app, argc, argv);
 
-    bench::SymmetricBenchmarkQ::allThroughputTests(csvFilename, numThreads, additionalWork);
+    bench::SymmetricBenchmarkQ::allThroughputTests(csvFilename, numThreads, additionalWork, ringSizes);
+
     return 0;
 }
 

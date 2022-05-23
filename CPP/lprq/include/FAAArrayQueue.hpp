@@ -93,10 +93,8 @@ struct Cell<T, false> {
  * @author Pedro Ramalhete
  * @author Andreia Correia
  */
-template<typename T, bool padded_cells = true>
+template<typename T, bool padded_cells = true, int BUFFER_SIZE = 1024>
 class FAAArrayQueue {
-    static const long BUFFER_SIZE = 1024;  // 1024
-
 private:
     using Cell = faa_detail::Cell<T, padded_cells>;
 
@@ -143,6 +141,8 @@ private:
 
 
 public:
+    static constexpr size_t RING_SIZE = BUFFER_SIZE;
+
     FAAArrayQueue(int maxThreads=MAX_THREADS) : maxThreads{maxThreads} {
         Node* sentinelNode = new Node(nullptr);
         sentinelNode->enqidx.store(0, std::memory_order_relaxed);
