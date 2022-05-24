@@ -4,7 +4,7 @@
 #include <CLI/Config.hpp>
 
 
-int main(int argc, char *argv[]){
+int main(int argc, char *argv[]) {
     CLI::App app{"Queue benchmarks"};
 
     std::string csvFilename = "res.csv";

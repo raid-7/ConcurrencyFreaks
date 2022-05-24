@@ -1,11 +1,8 @@
-#include "MetaprogrammingUtils.hpp"
 #include "BenchmarkQ.hpp"
 #include <CLI/App.hpp>
 #include <CLI/Formatter.hpp>
 #include <CLI/Config.hpp>
 
-
-using RingSizes = mpg::Constants<size_t>::Parameters<16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384>;
 
 int main(int argc, char *argv[]){
     CLI::App app{"Queue benchmarks"};

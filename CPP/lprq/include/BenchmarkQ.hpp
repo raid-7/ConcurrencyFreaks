@@ -63,7 +63,7 @@ namespace bench {
  * The drawback of this approach is a radical increase in compilation time :(
  * This drawback can be mitigated if we make possible ring sizes configurable with cmake.
  */
-using RingSizes = mpg::Constants<size_t>::Parameters<16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384>;
+using RingSizes = mpg::ConstantSet<size_t>::Parameters<16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384>;
 
 namespace {
 
