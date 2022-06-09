@@ -5,51 +5,44 @@
 
 namespace mpg {
 
-template<class ValueType, template<ValueType> class C>
+template<class... T>
+struct TypeSet {
+    using Tuple = std::tuple<T...>;
+
+    template<size_t i>
+    using Get = std::tuple_element_t<i, Tuple>;
+
+    template<class F>
+    static constexpr void foreach(F func) {
+        (func.template operator()<T>(), ...);
+    }
+};
+
+template<class ValueType>
 struct ParameterSet {
     template<ValueType... values>
-    struct Parameters {
-    private:
-        template<class R, class F, size_t index>
-        static constexpr R apply(ValueType value, F&& f) {
-            if constexpr(index == sizeof...(values)) {
-                throw std::logic_error("Index out of bounds");
-            } else {
-                if (value == Values[index]) {
-                    return std::forward<F>(f)(Instance<index>{});
-                } else {
-                    return apply<R, F, index + 1>(value, std::forward<F>(f));
-                }
-            }
-        }
-
+    struct Of {
     public:
-        template<size_t i>
-        using Instance = std::tuple_element_t<i, std::tuple<C<values>...>>;
+        static constexpr std::array Values = { values... };
 
-        static constexpr std::array Values = {values...};
+        using ValueConstants = TypeSet<std::integral_constant<ValueType, values>...>;
 
-        template<class R, class F>
-        static constexpr R apply(ValueType value, F&& f) {
-            return apply<R, F, 0>(value, std::forward<F>(f));
+        template<class F>
+        static constexpr void foreach(F f) {
+            ValueConstants::foreach([&f]<class C>() {
+                f.template operator()<C::value>();
+            });
         }
 
-        template<class R, class F>
-        static constexpr R apply_index(size_t index, F&& f) {
-            return apply<R, F>(Values[index], std::forward<F>(f));
+        template<class F>
+        static constexpr void apply(ValueType value, F&& f) {
+            foreach([value, f = std::forward<F>(f)]<ValueType v>() mutable {
+                if (v == value) {
+                    std::forward<F>(f).template operator()<v>();
+                }
+            });
         }
     };
 };
-
-namespace {
-template<class ValueType>
-struct IntegralConstant {
-    template<ValueType value>
-    using Constant = std::integral_constant<ValueType, value>;
-};
-}
-
-template<class ValueType>
-using ConstantSet = ParameterSet<ValueType, IntegralConstant<ValueType>::template Constant>;
 
 }

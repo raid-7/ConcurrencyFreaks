@@ -31,36 +31,9 @@
 
 
 #include <atomic>
+#include "x86AtomicOps.hpp"
 #include "CRQCell.hpp"
 #include "HazardPointers.hpp"
-
-// CAS2 macro
-
-#define __CAS2(ptr, o1, o2, n1, n2)                             \
-({                                                              \
-    char __ret;                                                 \
-    __typeof__(o2) __junk;                                      \
-    __typeof__(*(ptr)) __old1 = (o1);                           \
-    __typeof__(o2) __old2 = (o2);                               \
-    __typeof__(*(ptr)) __new1 = (n1);                           \
-    __typeof__(o2) __new2 = (n2);                               \
-    asm volatile("lock cmpxchg16b %2;setz %1"                   \
-                   : "=d"(__junk), "=a"(__ret), "+m" (*ptr)     \
-                   : "b"(__new1), "c"(__new2),                  \
-                     "a"(__old1), "d"(__old2));                 \
-    __ret; })
-
-#define CAS2(ptr, o1, o2, n1, n2)    __CAS2(ptr, o1, o2, n1, n2)
-
-
-#define BIT_TEST_AND_SET(ptr, b)                                \
-({                                                              \
-    char __ret;                                                 \
-    asm volatile("lock btsq $63, %0; setnc %1" : "+m"(*ptr), "=a"(__ret) : : "cc"); \
-    __ret;                                                      \
-})
-
-
 
 
 /**
@@ -197,7 +170,6 @@ public:
         return "LCRQueue"s + (padded_cells ? "/ca"s : ""s); 
     }
 
-
     void enqueue(T* item, const int tid) {
         int try_close = 0;
         while (true) {
@@ -219,7 +191,7 @@ public:
                 Node* nullnode = nullptr;
                 if (ltail->next.compare_exchange_strong(nullnode, newNode)) {// Insert new ring
                     tail.compare_exchange_strong(ltail, newNode); // Advance the tail
-                    hp.clear(tid);
+                    hp.clearOne(kHpTail, tid);
                     return;
                 }
                 delete newNode;
@@ -232,7 +204,7 @@ public:
                     // TODO: is the missing cast before "t" ok or not to add?
                     if ((!node_unsafe(idx) || ltail->head.load() < (int64_t)tailticket)) {
                         if (CAS2((void**)cell, nullptr, idx, item, tailticket)) {
-                            hp.clear(tid);
+                            hp.clearOne(kHpTail, tid);
                             return;
                         }
                     }
@@ -252,7 +224,7 @@ public:
             // try to return empty
             Node* lnext = lhead->next.load();
             if (lnext == nullptr) {
-                hp.clear(tid);
+                hp.clearOne(kHpHead, tid);
                 return nullptr;  // Queue is empty
             }
 
@@ -288,7 +260,7 @@ public:
                 if (val != nullptr) {
                     if (idx == headticket) {
                         if (CAS2((void**)cell, val, cell_idx, nullptr, unsafe | (headticket + RING_SIZE))) {
-                            hp.clear(tid);
+                            hp.clearOne(kHpHead, tid);
                             return val;
                         }
                     } else {
@@ -318,7 +290,7 @@ public:
                 // try to return empty
                 Node* lnext = lhead->next.load();
                 if (lnext == nullptr) {
-                    hp.clear(tid);
+                    hp.clearOne(kHpHead, tid);
                     return nullptr;  // Queue is empty
                 }
                 if (tail_index(lhead->tail) <= headticket + 1) {

@@ -3,6 +3,10 @@
 #include <CLI/Formatter.hpp>
 #include <CLI/Config.hpp>
 
+#include <set>
+#include <vector>
+#include <string>
+
 
 int main(int argc, char *argv[]){
     CLI::App app{"Queue benchmarks"};
@@ -18,7 +22,7 @@ int main(int argc, char *argv[]){
     app.add_option("-w,--work", additionalWork, "Additional work")
         ->check(CLI::NonNegativeNumber);
 
-    std::vector<size_t> ringSizes = { 1024 };
+    std::set<size_t> ringSizes = { 1024 };
     app.add_option("-r,--ring-size", ringSizes, "Ring size")
         ->check(CLI::IsMember(bench::RingSizes::Values));
 

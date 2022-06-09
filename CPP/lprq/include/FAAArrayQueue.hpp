@@ -176,7 +176,7 @@ public:
                     Node* newNode = new Node(item);
                     if (ltail->casNext(nullptr, newNode)) {
                         casTail(ltail, newNode);
-                        hp.clear(tid);
+                        hp.clearOne(kHpTail, tid);
                         return;
                     }
                     delete newNode;
@@ -187,7 +187,7 @@ public:
             }
             T* itemnull = nullptr;
             if (ltail->items[idx].val.compare_exchange_strong(itemnull, item)) {
-                hp.clear(tid);
+                hp.clearOne(kHpTail, tid);
                 return;
             }
         }
@@ -208,10 +208,10 @@ public:
             }
             T* item = lhead->items[idx].val.exchange(taken);
             if (item == nullptr) continue;
-            hp.clear(tid);
+            hp.clearOne(kHpHead, tid);
             return item;
         }
-        hp.clear(tid);
+        hp.clearOne(kHpHead, tid);
         return nullptr;
     }
 };

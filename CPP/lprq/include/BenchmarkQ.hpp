@@ -34,6 +34,7 @@
 #include <string>
 #include <optional>
 #include <vector>
+#include <set>
 #include <algorithm>
 #include <cassert>
 #include <fstream>
@@ -46,6 +47,7 @@
 #include "LCRQueue.hpp"
 #include "LPRQueue0.hpp"
 #include "LPRQueue2.hpp"
+#include "FakeLCRQueue.hpp"
 
 
 using namespace std;
@@ -63,7 +65,16 @@ namespace bench {
  * The drawback of this approach is a radical increase in compilation time :(
  * This drawback can be mitigated if we make possible ring sizes configurable with cmake.
  */
-using RingSizes = mpg::ConstantSet<size_t>::Parameters<16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384>;
+using RingSizes = mpg::ParameterSet<size_t>::Of<16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384>;
+
+template <class V, size_t ring_size>
+using Queues = mpg::TypeSet<
+        FAAArrayQueue<V, false, ring_size>,
+        LCRQueue<V, false, ring_size>,
+        FakeLCRQueue<V, false, ring_size>,
+        LPRQueue0<V, false, ring_size>,
+        LPRQueue2<V, false, ring_size>
+>;
 
 namespace {
 
@@ -413,7 +424,7 @@ public:
     static void allThroughputTests(const std::string& csvFilename,
                                    const vector<int>& threadList,
                                    const vector<double>& additionalWorkList,
-                                   const vector<size_t>& ringSizeList) {
+                                   const set<size_t>& ringSizeList) {
         ofstream csvFile(csvFilename);
         writeThroughputCsvHeader(csvFile);
 
@@ -425,21 +436,19 @@ public:
                 const int numPairs = std::min(nThreads * 1'000'000, 10'000'000);
 
                 SymmetricBenchmarkQ bench(nThreads, additionalWork);
-                for (size_t ringSize : ringSizeList) {
-                    RingSizes::apply<void>(ringSize, [&](auto sizeConst) {
-                        constexpr size_t RING_SIZE = decltype(sizeConst)::value;
+                RingSizes::foreach([&] <size_t ring_size> () {
+                    if (!ringSizeList.contains(ring_size))
+                        return;
 
-                        cout << "\n----- Enq-Deq Benchmark   numThreads=" << nThreads << "   numPairs="
-                             << numPairs / 1000000LL << "M" << "   additionalWork="
-                             << static_cast<uint64_t>(additionalWork) <<  "   ringSize=" << RING_SIZE
-                             << " -----" << endl;
+                    cout << "\n----- Enq-Deq Benchmark   numThreads=" << nThreads << "   numPairs="
+                         << numPairs / 1000000LL << "M" << "   additionalWork="
+                         << static_cast<uint64_t>(additionalWork) <<  "   ringSize=" << ring_size
+                         << " -----" << endl;
 
-                        bench.runEnqDeqBenchmark<FAAArrayQueue<UserData, false, RING_SIZE>>(csvFile, numPairs, numRuns);
-                        bench.runEnqDeqBenchmark<LCRQueue<UserData, false, RING_SIZE>>(csvFile, numPairs, numRuns);
-                        bench.runEnqDeqBenchmark<LPRQueue0<UserData, false, RING_SIZE>>(csvFile, numPairs, numRuns);
-                        bench.runEnqDeqBenchmark<LPRQueue2<UserData, false, RING_SIZE>>(csvFile, numPairs, numRuns);
+                    Queues<UserData, ring_size>::foreach([&] <class Q> () {
+                        bench.runEnqDeqBenchmark<Q>(csvFile, numPairs, numRuns);
                     });
-                }
+                });
             }
         }
 
@@ -609,7 +618,7 @@ public:
     static void allThroughputTests(const std::string& csvFilename,
                                    const vector<pair<int, int>>& threadList,
                                    const vector<double>& additionalWorkList,
-                                   const vector<size_t>& ringSizeList,
+                                   const set<size_t>& ringSizeList,
                                    const bool balancedLoad) {
         ofstream csvFile(csvFilename);
         writeThroughputCsvHeader(csvFile);
@@ -622,22 +631,20 @@ public:
                 auto numProducers = numProdCons.first;
                 auto numConsumers = numProdCons.second;
                 ProducerConsumerBenchmarkQ bench(numProducers, numConsumers, additionalWork, balancedLoad);
-                for (size_t ringSize : ringSizeList) {
-                    RingSizes::apply<void>(ringSize, [&](auto sizeConst) {
-                        constexpr size_t RING_SIZE = decltype(sizeConst)::value;
+                RingSizes::foreach([&] <size_t ring_size> () {
+                    if (!ringSizeList.contains(ring_size))
+                        return;
 
-                        cout << "\n----- Producer-Consumer Benchmark   numProducers=" << numProducers
-                             << "   numConsumers=" << numConsumers << "   runDuration=" << runDuration.count() << "ms"
-                             << "   additionalWork=" << static_cast<uint64_t>(additionalWork) << "   balancedLoad="
-                             << std::boolalpha << balancedLoad <<  "   ringSize=" << RING_SIZE
-                             << " -----" << endl;
+                    cout << "\n----- Producer-Consumer Benchmark   numProducers=" << numProducers
+                         << "   numConsumers=" << numConsumers << "   runDuration=" << runDuration.count() << "ms"
+                         << "   additionalWork=" << static_cast<uint64_t>(additionalWork) << "   balancedLoad="
+                         << std::boolalpha << balancedLoad <<  "   ringSize=" << ring_size
+                         << " -----" << endl;
 
-                        bench.runProducerConsumerBenchmark<FAAArrayQueue<UserData, false, RING_SIZE>>(csvFile, runDuration, numRuns);
-                        bench.runProducerConsumerBenchmark<LCRQueue<UserData, false, RING_SIZE>>(csvFile, runDuration, numRuns);
-                        bench.runProducerConsumerBenchmark<LPRQueue0<UserData, false, RING_SIZE>>(csvFile, runDuration, numRuns);
-                        bench.runProducerConsumerBenchmark<LPRQueue2<UserData, false, RING_SIZE>>(csvFile, runDuration, numRuns);
+                    Queues<UserData, ring_size>::foreach([&]<class Q>() {
+                        bench.runProducerConsumerBenchmark<Q>(csvFile, runDuration, numRuns);
                     });
-                }
+                });
             }
         }
 
