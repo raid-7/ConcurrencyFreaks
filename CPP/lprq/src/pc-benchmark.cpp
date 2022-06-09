@@ -6,6 +6,7 @@
 #include <set>
 #include <vector>
 #include <string>
+#include <regex>
 
 
 int main(int argc, char *argv[]) {
@@ -13,6 +14,9 @@ int main(int argc, char *argv[]) {
 
     std::string csvFilename = "res.csv";
     app.add_option("-f,--file", csvFilename, "File to export measurement results");
+
+    std::string queueFilter = ".*";
+    app.add_option("-q,--queue", queueFilter, "ECMAScript regular expression specifying queues to benchmark");
 
     std::vector<std::pair<int, int>> numThreads = { {1, 1} };
     app.add_option("-t,--thread-groups", numThreads, "Number of threads");
@@ -30,8 +34,9 @@ int main(int argc, char *argv[]) {
 
     CLI11_PARSE(app, argc, argv);
 
-    bench::ProducerConsumerBenchmarkQ::allThroughputTests(csvFilename, numThreads, additionalWork, ringSizes,
-                                                          balancedLoad);
+    std::regex queueFilterR = std::regex(queueFilter, std::regex::ECMAScript | std::regex::icase | std::regex::nosubs);
+    bench::ProducerConsumerBenchmarkQ::allThroughputTests(csvFilename, queueFilterR, numThreads, additionalWork,
+                                                          ringSizes, balancedLoad);
     return 0;
 }
 

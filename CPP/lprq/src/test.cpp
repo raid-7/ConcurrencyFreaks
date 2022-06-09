@@ -5,6 +5,7 @@
 #include "LPRQueue0.hpp"
 #include "LPRQueue2.hpp"
 #include "LCRQueue.hpp"
+#include "FakeLCRQueue.hpp"
 
 
 template <class Q>
@@ -13,7 +14,7 @@ public:
     Q q{};
 };
 
-using QueuesToTest = ::testing::Types<FAAArrayQueue<int>, LCRQueue<int>, LPRQueue0<int>, LPRQueue2<int>>;
+using QueuesToTest = ::testing::Types<FAAArrayQueue<int>, LCRQueue<int>, LPRQueue0<int>, LPRQueue2<int>, FakeLCRQueue<int>>;
 TYPED_TEST_SUITE(QueueTest, QueuesToTest);
 
 

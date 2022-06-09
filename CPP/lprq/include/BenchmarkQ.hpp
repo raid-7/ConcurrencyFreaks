@@ -39,6 +39,7 @@
 #include <cassert>
 #include <fstream>
 #include <sstream>
+#include <regex>
 #include <AdditionalWork.hpp>
 #include <Stats.hpp>
 #include "MetaprogrammingUtils.hpp"
@@ -422,6 +423,7 @@ public:
 public:
 
     static void allThroughputTests(const std::string& csvFilename,
+                                   const std::regex& queueFilter,
                                    const vector<int>& threadList,
                                    const vector<double>& additionalWorkList,
                                    const set<size_t>& ringSizeList) {
@@ -446,6 +448,9 @@ public:
                          << " -----" << endl;
 
                     Queues<UserData, ring_size>::foreach([&] <class Q> () {
+                        if (!regex_match(Q::className(), queueFilter))
+                            return;
+
                         bench.runEnqDeqBenchmark<Q>(csvFile, numPairs, numRuns);
                     });
                 });
@@ -616,6 +621,7 @@ public:
 
 public:
     static void allThroughputTests(const std::string& csvFilename,
+                                   const std::regex& queueFilter,
                                    const vector<pair<int, int>>& threadList,
                                    const vector<double>& additionalWorkList,
                                    const set<size_t>& ringSizeList,
@@ -642,6 +648,9 @@ public:
                          << " -----" << endl;
 
                     Queues<UserData, ring_size>::foreach([&]<class Q>() {
+                        if (!regex_match(Q::className(), queueFilter))
+                            return;
+
                         bench.runProducerConsumerBenchmark<Q>(csvFile, runDuration, numRuns);
                     });
                 });
