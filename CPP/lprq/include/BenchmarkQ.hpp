@@ -503,10 +503,6 @@ public:
     }
 
 
-    /**
-     * enqueue-dequeue pairs: in each iteration a thread executes an enqueue followed by a dequeue;
-     * the benchmark executes 10^8 pairs partitioned evenly among all threads;
-     */
     template<typename Q>
     vector<long double> producerConsumerBenchmark(const milliseconds runDuration, const int numRuns) {
         uint32_t transferredCount[numConsumers][numRuns];
