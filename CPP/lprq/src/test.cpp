@@ -1,6 +1,7 @@
 #include <thread>
 #include <latch>
 #include <vector>
+#include <set>
 #include <ranges>
 #include <algorithm>
 #include <gtest/gtest.h>
@@ -96,13 +97,15 @@ TYPED_TEST(QueueTest, BatchEnqDeqStress2) {
 }
 
 TYPED_TEST(QueueTest, ProducerConsumer) {
-    constexpr size_t numElementsPerProducer = 1'000'000;
+    constexpr size_t numElementsPerProducer = 4'00'000;
     constexpr size_t numProducers = 3;
     constexpr size_t numConsumers = 3;
 
     struct UserData {
         int tid;
         uint64_t id;
+
+        auto operator <=>(const UserData&) const = default;
     };
 
     using QType = typename mpg::RebindTemplate<TypeParam>::To<UserData>; // Queue<int>  ->  Queue<UserData>
@@ -136,10 +139,16 @@ TYPED_TEST(QueueTest, ProducerConsumer) {
     rng::transform(consumerData, std::back_inserter(threads), [&](std::vector<UserData>& data) {
         return std::thread([&q, &data, &startBarrier, &stopFlag, tid=++tidCnt] {
             startBarrier.arrive_and_wait();
-            while (!stopFlag.load()) {
+            bool stop = false;
+            while (1) {
                 UserData* ud = q.dequeue(tid);
                 if (ud)
                     data.emplace_back(*ud);
+                else {
+                    if (stop)
+                        break;
+                    stop = stopFlag.load();
+                }
             }
         });
     });
@@ -159,4 +168,9 @@ TYPED_TEST(QueueTest, ProducerConsumer) {
             }
         }
     }
+
+    auto prodsJoined = producerData | rng::views::join;
+    auto consJoined = consumerData | rng::views::join;
+    EXPECT_EQ(std::set<UserData>(rng::begin(prodsJoined), rng::end(prodsJoined)),
+              std::set<UserData>(rng::begin(consJoined), rng::end(consJoined)));
 }
