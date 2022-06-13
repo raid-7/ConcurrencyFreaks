@@ -13,8 +13,12 @@
 #include "LCRQueue.hpp"
 #include "FakeLCRQueue.hpp"
 
-
 namespace rng = std::ranges;
+
+
+template<class V>
+using QueuesToTest = ::testing::Types<FAAArrayQueue<V>, LCRQueue<V>, LPRQueue0<V>, LPRQueue2<V>, FakeLCRQueue<V>>;
+
 
 template <class Q>
 class QueueTest : public ::testing::Test {
@@ -22,9 +26,8 @@ public:
     Q q{};
 };
 
-using QueuesToTest = ::testing::Types<FAAArrayQueue<int>, LCRQueue<int>, LPRQueue0<int>, LPRQueue2<int>, FakeLCRQueue<int>>;
-TYPED_TEST_SUITE(QueueTest, QueuesToTest);
-
+using QueuesOfInts = QueuesToTest<int>;
+TYPED_TEST_SUITE(QueueTest, QueuesOfInts);
 
 TYPED_TEST(QueueTest, Simple) {
     TypeParam& q = this->q;
@@ -96,20 +99,26 @@ TYPED_TEST(QueueTest, BatchEnqDeqStress2) {
     }
 }
 
-TYPED_TEST(QueueTest, ProducerConsumer) {
+
+struct UserData {
+    int tid;
+    uint64_t id;
+
+    auto operator <=>(const UserData&) const = default;
+};
+
+template <class Q>
+class ConcurrentQueueTest : public QueueTest<Q> {};
+
+using QueuesOfUserData = QueuesToTest<UserData>;
+TYPED_TEST_SUITE(ConcurrentQueueTest, QueuesOfUserData);
+
+TYPED_TEST(ConcurrentQueueTest, ProducerConsumer) {
     constexpr size_t numElementsPerProducer = 4'00'000;
     constexpr size_t numProducers = 3;
     constexpr size_t numConsumers = 3;
 
-    struct UserData {
-        int tid;
-        uint64_t id;
-
-        auto operator <=>(const UserData&) const = default;
-    };
-
-    using QType = typename mpg::RebindTemplate<TypeParam>::To<UserData>; // Queue<int>  ->  Queue<UserData>
-    QType q{};
+    TypeParam& q = this->q;
 
     std::vector<std::vector<UserData>> producerData(numProducers);
     for (size_t i = 0; i < numProducers; ++i) {

@@ -5,15 +5,6 @@
 
 namespace mpg {
 
-template<class C>
-struct RebindTemplate;
-
-template<template<class> class T, class P>
-struct RebindTemplate<T<P>> {
-    template<class P2>
-    using To = T<P2>;
-};
-
 template<class... T>
 struct TypeSet {
     using Tuple = std::tuple<T...>;
