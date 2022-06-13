@@ -2,7 +2,6 @@
 #include <latch>
 #include <vector>
 #include <set>
-#include <ranges>
 #include <algorithm>
 #include <gtest/gtest.h>
 #include <MetaprogrammingUtils.hpp>
@@ -12,8 +11,6 @@
 #include "LPRQueue2.hpp"
 #include "LCRQueue.hpp"
 #include "FakeLCRQueue.hpp"
-
-namespace rng = std::ranges;
 
 
 template<class V>
@@ -135,7 +132,8 @@ TYPED_TEST(ConcurrentQueueTest, ProducerConsumer) {
     std::latch stopBarrier{numProducers + 1};
     std::atomic<bool> stopFlag{false};
 
-    rng::transform(producerData, std::back_inserter(threads), [&](std::vector<UserData>& data) {
+    std::transform(producerData.begin(), producerData.end(),
+                   std::back_inserter(threads), [&](std::vector<UserData>& data) {
         return std::thread([&q, &data, &startBarrier, &stopBarrier, tid=++tidCnt] {
             startBarrier.arrive_and_wait();
             for (UserData& ud : data) {
@@ -145,11 +143,11 @@ TYPED_TEST(ConcurrentQueueTest, ProducerConsumer) {
         });
     });
 
-    rng::transform(consumerData, std::back_inserter(threads), [&](std::vector<UserData>& data) {
+    std::transform(consumerData.begin(), consumerData.end(), std::back_inserter(threads), [&](std::vector<UserData>& data) {
         return std::thread([&q, &data, &startBarrier, &stopFlag, tid=++tidCnt] {
             startBarrier.arrive_and_wait();
             bool stop = false;
-            while (1) {
+            while (true) {
                 UserData* ud = q.dequeue(tid);
                 if (ud)
                     data.emplace_back(*ud);
@@ -165,10 +163,13 @@ TYPED_TEST(ConcurrentQueueTest, ProducerConsumer) {
     stopBarrier.arrive_and_wait();
     stopFlag.store(true);
 
-    rng::for_each(threads, &std::thread::join);
+    for (std::thread& thread : threads)
+        thread.join();
 
     for (std::vector<UserData>& data : consumerData) {
-        rng::stable_sort(data, {}, &UserData::tid);
+        std::stable_sort(data.begin(), data.end(), [](const auto& a, const auto& b) {
+            return a.tid < b.tid;
+        });
         for (size_t i = 1; i < data.size(); ++i) {
             const UserData& d1 = data[i - 1];
             const UserData& d2 = data[i];
@@ -178,8 +179,11 @@ TYPED_TEST(ConcurrentQueueTest, ProducerConsumer) {
         }
     }
 
-    auto prodsJoined = producerData | rng::views::join;
-    auto consJoined = consumerData | rng::views::join;
-    EXPECT_EQ(std::set<UserData>(rng::begin(prodsJoined), rng::end(prodsJoined)),
-              std::set<UserData>(rng::begin(consJoined), rng::end(consJoined)));
+    std::set<UserData> prodsJoined;
+    for (const auto& data : producerData)
+        prodsJoined.insert(data.begin(), data.end());
+    std::set<UserData> consJoined;
+    for (const auto& data : consumerData)
+        consJoined.insert(data.begin(), data.end());
+    EXPECT_EQ(prodsJoined, consJoined);
 }
