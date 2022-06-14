@@ -45,8 +45,9 @@ struct alignas(128) Cell<T, true> {
 };
 
 template<class T>
-struct Cell<T, false> {
+struct alignas(16) Cell<T, false> {
     std::atomic<T*> val;
+    uint64_t pad;
 };
 }
 
@@ -160,7 +161,7 @@ public:
 
     static std::string className() {
         using namespace std::string_literals;
-        return "FAAArrayQueue"s + (padded_cells ? "/ca"s : ""s);
+        return "FAAArrayQueue"s + (padded_cells ? "/ca"s : "/x2pad"s);
     }
 
 
