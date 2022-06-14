@@ -99,7 +99,7 @@ TYPED_TEST(QueueTest, BatchEnqDeqStress2) {
 
 struct UserData {
     int tid;
-    uint64_t id;
+    size_t id;
 
     auto operator <=>(const UserData&) const = default;
 };
@@ -120,7 +120,7 @@ TYPED_TEST(ConcurrentQueueTest, ProducerConsumer) {
     std::vector<std::vector<UserData>> producerData(numProducers);
     for (size_t i = 0; i < numProducers; ++i) {
         for (size_t j = 0; j < numElementsPerProducer; ++j) {
-            producerData[i].emplace_back(i, j);
+            producerData[i].push_back({static_cast<int>(i), j});
         }
     }
 
