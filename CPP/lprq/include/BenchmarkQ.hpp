@@ -505,6 +505,8 @@ public:
 
     template<typename Q>
     vector<long double> producerConsumerBenchmark(const milliseconds runDuration, const int numRuns) {
+        cout << "P: " << producerAdditionalWork << "; L: " << consumerAdditionalWork << endl;
+
         uint32_t transferredCount[numConsumers][numRuns];
         nanoseconds deltas[numRuns];
         Q* queue = nullptr;
@@ -551,6 +553,7 @@ public:
                         // side effect to prevent DCE
                         cout << "This message will never appear \n";
                 }
+                random_additional_work(consumerAdditionalWork);
             }
 
             *cnt = deqCount;
