@@ -216,33 +216,9 @@ public:
 
 
     T* dequeue(const int tid) {
-        Node* lhead = hp.protectPtr(kHpHead, head.load(), tid);
-
-        // In the next expression the order of volatile reads is essential. According to the standard
-        // the order of evaluation of the operands is unspecified, but compilers, we tested, preserve it.
-        if ((uint64_t)lhead->head.load() >= tail_index(lhead->tail.load())) {
-            // try to return empty
-            Node* lnext = lhead->next.load();
-            if (lnext == nullptr) {
-                hp.clearOne(kHpHead, tid);
-                return nullptr;  // Queue is empty
-            }
-
-            if (head.compare_exchange_strong(lhead, lnext)) {
-                hp.retire(lhead, tid);
-                lhead = hp.protectPtr(kHpHead, lnext, tid);
-            } else {
-                lhead = hp.protectPtr(kHpHead, lhead, tid);
-            }
-        }
-
         while (true) {
-            Node* lhead2 = head.load();
-            if (lhead != lhead2) {
-                lhead = hp.protectPtr(kHpHead, lhead2, tid);
-                continue;
-            }
-
+            Node* lhead = hp.protectPtr(kHpHead, head.load(), tid);
+            if (lhead != head.load()) continue;
             uint64_t headticket = lhead->head.fetch_add(1);
             Cell* cell = &lhead->array[headticket & (RING_SIZE-1)];
 
@@ -294,12 +270,7 @@ public:
                     return nullptr;  // Queue is empty
                 }
                 if (tail_index(lhead->tail) <= headticket + 1) {
-                    if (head.compare_exchange_strong(lhead, lnext)) {
-                        hp.retire(lhead, tid);
-                        lhead = hp.protectPtr(kHpHead, lnext, tid);
-                    } else {
-                        lhead = hp.protectPtr(kHpHead, lhead, tid);
-                    }
+                    if (head.compare_exchange_strong(lhead, lnext)) hp.retire(lhead, tid);
                 }
             }
         }
