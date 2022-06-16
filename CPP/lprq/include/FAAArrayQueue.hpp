@@ -207,16 +207,8 @@ public:
                 if (casHead(lhead, lnext)) hp.retire(lhead, tid);
                 continue;
             }
-            auto& cell = lhead->items[idx].val;
-            if (cell.load() == nullptr && lhead->enqidx.load() > idx) {
-                for (size_t i = 0; i < 2048; ++i) {
-                    if (cell.load() != nullptr)
-                        break;
-                }
-            }
-            T* item = cell.exchange(taken);
-            if (item == nullptr)
-                continue;
+            T* item = lhead->items[idx].val.exchange(taken);
+            if (item == nullptr) continue;
             hp.clearOne(kHpHead, tid);
             return item;
         }
