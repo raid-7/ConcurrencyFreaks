@@ -160,7 +160,7 @@ public:
 
     static std::string className() {
         using namespace std::string_literals;
-        return "FAAArrayQueue"s + (padded_cells ? "/ca"s : "/optim"s);
+        return "FAAArrayQueue"s + (padded_cells ? "/ca"s : ""s);
     }
 
 
@@ -186,8 +186,7 @@ public:
                 continue;
             }
             T* itemnull = nullptr;
-            if (ltail->items[idx].val.load() == nullptr &&
-                ltail->items[idx].val.compare_exchange_strong(itemnull, item)) {
+            if (ltail->items[idx].val.compare_exchange_strong(itemnull, item)) {
                 hp.clearOne(kHpTail, tid);
                 return;
             }
