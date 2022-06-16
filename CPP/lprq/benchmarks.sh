@@ -17,7 +17,7 @@ fi
   "$PC_BENCH" -f cpp-res-p1c2b.csv -t 1 2 2 4 4 8 6 12 8 16 10 20 14 28 20 40 -w 8 -b -q "$QUEUE_FILTER"
   "$PC_BENCH" -f cpp-res-mpsc.csv -t 1 1 2 1 4 1 8 1 16 1 24 1 32 1 42 1 52 1 62 1 -w 8 24 -q "$QUEUE_FILTER"
   "$PC_BENCH" -f cpp-res-spmc.csv -t 1 1 1 2 1 4 1 8 1 16 1 24 1 32 1 42 1 52 1 62 -w 8 24 -q "$QUEUE_FILTER"
-  "$PC_BENCH" -f cpp-res-mpscb.csv -t 1 1 2 1 4 1 8 1 16 1 24 1 32 1 42 1 52 1 62 1 -w 8 24 -b -q "$QUEUE_FILTER"
-  "$PC_BENCH" -f cpp-res-spmcb.csv -t 1 1 1 2 1 4 1 8 1 16 1 24 1 32 1 42 1 52 1 62 -w 8 24 -b -q "$QUEUE_FILTER"
+  "$PC_BENCH" -f cpp-res-mpscb.csv -t 1 1 2 1 4 1 8 1 16 1 24 1 32 1 42 1 52 1 62 1 -w 36 -b -q "$QUEUE_FILTER"
+  "$PC_BENCH" -f cpp-res-spmcb.csv -t 1 1 1 2 1 4 1 8 1 16 1 24 1 32 1 42 1 52 1 62 -w 36 -b -q "$QUEUE_FILTER"
   "$ED_BENCH" -f cpp-res-enq-deq.csv -t 1 2 4 8 16 24 32 40 48 64 -w 8 -q "$QUEUE_FILTER"
 } > cpp-res.txt 2>&1
