@@ -505,8 +505,6 @@ public:
 
     template<typename Q>
     vector<long double> producerConsumerBenchmark(const milliseconds runDuration, const int numRuns) {
-        cout << "P: " << producerAdditionalWork << "; L: " << consumerAdditionalWork << endl;
-
         uint32_t transferredCount[numConsumers][numRuns];
         nanoseconds deltas[numRuns];
         Q* queue = nullptr;
