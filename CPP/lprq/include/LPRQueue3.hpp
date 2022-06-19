@@ -11,7 +11,7 @@
  * <h1> LPRQ3 Queue </h1>
  */
 template<typename T, bool padded_cells = true, size_t ring_size = 1024,
-        size_t num_completion_counters = 8, size_t counter_concurrency_level = 4, bool padded_counters = true>
+        size_t num_completion_counters = 32, size_t counter_concurrency_level = 8, bool padded_counters = true>
 class LPRQueue3 {
 private:
     using Cell = detail::PlainCell<void*, padded_cells>;
@@ -57,7 +57,9 @@ private:
     }
 
     inline uint64_t headTailCompletionCounterIndex(uint64_t c) {
-        return c % num_completion_counters; // TODO counter order optimization
+        return (c / counter_concurrency_level) % (num_completion_counters / counter_concurrency_level)
+                    * counter_concurrency_level +
+               c % counter_concurrency_level;
     }
 
     inline uint64_t counterCompleteEpoch(uint64_t c) {
