@@ -30,7 +30,7 @@
 
 
 #include <atomic>
-#include "CRQCell.hpp"
+#include "RQCell.hpp"
 #include "x86AtomicOps.hpp"
 #include "HazardPointers.hpp"
 
@@ -43,7 +43,7 @@
 template<typename T, bool padded_cells = true, size_t ring_size = 1024>
 class FakeLCRQueue {
 private:
-    using Cell = detail::Cell<padded_cells>;
+    using Cell = detail::CRQCell<T*, padded_cells>;
 
     struct Node {
         std::atomic<int64_t> head  __attribute__ ((aligned (128)));
@@ -72,13 +72,6 @@ private:
     const int kHpTail = 0;
     const int kHpHead = 0;
 
-
-    /*
-     * Private methods
-     */
-    int is_empty(T* v)  {
-        return (v == nullptr);
-    }
 
     uint64_t node_index(uint64_t i) {
         return (i & ~(1ull << 63));

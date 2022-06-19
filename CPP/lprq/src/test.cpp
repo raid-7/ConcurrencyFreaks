@@ -9,12 +9,14 @@
 #include "FAAArrayQueue.hpp"
 #include "LPRQueue0.hpp"
 #include "LPRQueue2.hpp"
+#include "LPRQueue3.hpp"
 #include "LCRQueue.hpp"
 #include "FakeLCRQueue.hpp"
 
 
 template<class V>
-using QueuesToTest = ::testing::Types<FAAArrayQueue<V>, LCRQueue<V>, LPRQueue0<V>, LPRQueue2<V>, FakeLCRQueue<V>>;
+using QueuesToTest = ::testing::Types<
+        FAAArrayQueue<V>, LCRQueue<V>, LPRQueue0<V>, LPRQueue2<V>, LPRQueue3<V>, FakeLCRQueue<V>>;
 
 
 template <class Q>
@@ -179,10 +181,10 @@ TYPED_TEST(ConcurrentQueueTest, ProducerConsumer) {
         }
     }
 
-    std::set<UserData> prodsJoined;
+    std::multiset<UserData> prodsJoined;
     for (const auto& data : producerData)
         prodsJoined.insert(data.begin(), data.end());
-    std::set<UserData> consJoined;
+    std::multiset<UserData> consJoined;
     for (const auto& data : consumerData)
         consJoined.insert(data.begin(), data.end());
     EXPECT_EQ(prodsJoined, consJoined);

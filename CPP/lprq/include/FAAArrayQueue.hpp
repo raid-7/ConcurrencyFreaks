@@ -31,24 +31,9 @@
 
 #include <atomic>
 #include <stdexcept>
+#include "RQCell.hpp"
 #include "HazardPointers.hpp"
 
-
-namespace faa_detail {
-template<class, bool>
-struct Cell;
-
-template<class T>
-struct alignas(128) Cell<T, true> {
-    std::atomic<T*> val;
-    uint64_t pad[15];
-};
-
-template<class T>
-struct Cell<T, false> {
-    std::atomic<T*> val;
-};
-}
 
 /**
  * <h1> Fetch-And-Add Array Queue </h1>
@@ -96,7 +81,7 @@ struct Cell<T, false> {
 template<typename T, bool padded_cells = true, int BUFFER_SIZE = 1024>
 class FAAArrayQueue {
 private:
-    using Cell = faa_detail::Cell<T, padded_cells>;
+    using Cell = detail::PlainCell<T*, padded_cells>;
 
     struct Node {
         alignas(128) std::atomic<int>   deqidx;

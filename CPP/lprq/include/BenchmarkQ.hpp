@@ -48,6 +48,7 @@
 #include "LCRQueue.hpp"
 #include "LPRQueue0.hpp"
 #include "LPRQueue2.hpp"
+#include "LPRQueue3.hpp"
 #include "FakeLCRQueue.hpp"
 
 
@@ -74,7 +75,8 @@ using Queues = mpg::TypeSet<
         LCRQueue<V, false, ring_size>,
         FakeLCRQueue<V, false, ring_size>,
         LPRQueue0<V, false, ring_size>,
-        LPRQueue2<V, false, ring_size>
+        LPRQueue2<V, false, ring_size>,
+        LPRQueue3<V, false, ring_size>
 >;
 
 namespace {
