@@ -78,21 +78,21 @@
  * @author Pedro Ramalhete
  * @author Andreia Correia
  */
-template<typename T, bool padded_cells = true, int BUFFER_SIZE = 1024>
+template<typename T, bool padded_cells = true, size_t BUFFER_SIZE = 1024>
 class FAAArrayQueue {
 private:
     using Cell = detail::PlainCell<T*, padded_cells>;
 
     struct Node {
-        alignas(128) std::atomic<int>   deqidx;
-        alignas(128) std::atomic<int>   enqidx;
+        alignas(128) std::atomic<uint32_t>   deqidx;
+        alignas(128) std::atomic<uint32_t>   enqidx;
         alignas(128) std::atomic<Node*> next;
         Cell                            items[BUFFER_SIZE];
 
         // Start with the first entry pre-filled and enqidx at 1
         Node(T* item) : deqidx{0}, enqidx{1}, next{nullptr} {
             items[0].val.store(item, std::memory_order_relaxed);
-            for (long i = 1; i < BUFFER_SIZE; i++) {
+            for (size_t i = 1; i < BUFFER_SIZE; i++) {
                 items[i].val.store(nullptr, std::memory_order_relaxed);
             }
         }
@@ -124,6 +124,20 @@ private:
     const int kHpTail = 0;
     const int kHpHead = 0;
 
+    void fixState(Node* lhead) {
+        while (true) {
+            uint32_t t = lhead->enqidx.load();
+            uint32_t h = lhead->deqidx.load();
+            if (lhead->enqidx.load() != t)
+                continue;
+
+            if (h <= t)
+                break;
+
+            if (lhead->enqidx.compare_exchange_strong(t, h))
+                break;
+        }
+    }
 
 public:
     static constexpr size_t RING_SIZE = BUFFER_SIZE;
@@ -145,7 +159,7 @@ public:
 
     static std::string className() {
         using namespace std::string_literals;
-        return "FAAArrayQueue"s + (padded_cells ? "/ca"s : ""s);
+        return "FAAArrayQueue"s + (padded_cells ? "/ca"s : "/fixState"s);
     }
 
 
@@ -153,7 +167,7 @@ public:
         if (item == nullptr) throw std::invalid_argument("item can not be nullptr");
         while (true) {
             Node* ltail = hp.protect(kHpTail, tail, tid);
-            const int idx = ltail->enqidx.fetch_add(1);
+            const uint32_t idx = ltail->enqidx.fetch_add(1);
             if (idx > BUFFER_SIZE-1) { // This node is full
                 if (ltail != tail.load()) continue;
                 Node* lnext = ltail->next.load();
@@ -182,17 +196,28 @@ public:
     T* dequeue(const int tid) {
         while (true) {
             Node* lhead = hp.protect(kHpHead, head, tid);
-            if (lhead->deqidx.load() >= lhead->enqidx.load() && lhead->next.load() == nullptr)
+            uint32_t deqidx = lhead->deqidx.load();
+            uint32_t enqidx = lhead->enqidx.load();
+            if (deqidx >= enqidx && lhead->next.load() == nullptr)
                 break;
-            const int idx = lhead->deqidx.fetch_add(1);
+
+            const uint32_t idx = lhead->deqidx.fetch_add(1);
             if (idx > BUFFER_SIZE-1) { // This node has been drained, check if there is another one
                 Node* lnext = lhead->next.load();
-                if (lnext == nullptr) break;  // No more nodes in the queue
-                if (casHead(lhead, lnext)) hp.retire(lhead, tid);
+                if (lnext == nullptr)
+                    break;  // No more nodes in the queue
+                if (casHead(lhead, lnext))
+                    hp.retire(lhead, tid);
                 continue;
             }
+
             T* item = lhead->items[idx].val.exchange(taken);
-            if (item == nullptr) continue;
+            if (item == nullptr) {
+                if (lhead->enqidx.load() <= idx + 1)
+                    fixState(lhead);
+                continue;
+            }
+
             hp.clearOne(kHpHead, tid);
             return item;
         }
