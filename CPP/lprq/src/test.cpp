@@ -12,13 +12,11 @@
 #include "LPRQueue3.hpp"
 #include "LCRQueue.hpp"
 #include "FakeLCRQueue.hpp"
-#include "NUMAAwareQueueAdaptor.hpp"
 
 
 template<class V>
 using QueuesToTest = ::testing::Types<
-        FAAArrayQueue<V>, LCRQueue<V>, LPRQueue0<V>, LPRQueue2<V>, LPRQueue3<V>, FakeLCRQueue<V>,
-        NUMAAwareQueueAdaptor<LCRQueue<V>>>;
+        FAAArrayQueue<V>, LCRQueue<V>, LPRQueue0<V>, LPRQueue2<V>, LPRQueue3<V>, FakeLCRQueue<V>>;
 
 
 template <class Q>

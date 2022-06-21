@@ -50,7 +50,6 @@
 #include "LPRQueue2.hpp"
 #include "LPRQueue3.hpp"
 #include "FakeLCRQueue.hpp"
-#include "NUMAAwareQueueAdaptor.hpp"
 
 
 using namespace std;
@@ -77,16 +76,8 @@ using Queues = mpg::TypeSet<
         FakeLCRQueue<V, false, ring_size>,
         LPRQueue0<V, false, ring_size>,
         LPRQueue2<V, false, ring_size>,
-        LPRQueue3<V, false, ring_size>,
-
-        NUMAAwareQueueAdaptor<FAAArrayQueue<V, false, ring_size>>,
-        NUMAAwareQueueAdaptor<LCRQueue<V, false, ring_size>>,
-        NUMAAwareQueueAdaptor<FakeLCRQueue<V, false, ring_size>>,
-        NUMAAwareQueueAdaptor<LPRQueue0<V, false, ring_size>>,
-        NUMAAwareQueueAdaptor<LPRQueue2<V, false, ring_size>>,
-        NUMAAwareQueueAdaptor<LPRQueue3<V, false, ring_size>>
+        LPRQueue3<V, false, ring_size>
 >;
-
 
 namespace {
 

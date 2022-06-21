@@ -21,10 +21,10 @@ function(make_bench name sources)
     target_compile_options("bench-${name}" PRIVATE -Wall -Wextra)
 endfunction()
 
-make_bench(enq-deq "src/pairs-benchmark.cpp;src/AdditionalWork.cpp;src/Numa.cpp")
-make_bench(prod-cons "src/pc-benchmark.cpp;src/AdditionalWork.cpp;src/Numa.cpp")
+make_bench(enq-deq "src/pairs-benchmark.cpp;src/AdditionalWork.cpp")
+make_bench(prod-cons "src/pc-benchmark.cpp;src/AdditionalWork.cpp")
 
-add_executable(tests src/test.cpp src/Numa.cpp)
+add_executable(tests src/test.cpp)
 target_link_libraries(tests PRIVATE Threads::Threads gtest_main)
 target_include_directories(tests PRIVATE include/)
 target_compile_options(tests PRIVATE -Wall -Wextra)
