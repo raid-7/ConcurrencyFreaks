@@ -500,7 +500,6 @@ private:
     bool needMetrics;
 
     void computeSecondaryMetrics(Metrics& m) {
-        cout << m << endl;
         auto data = m.data();
         m.inc<"transfersPerNode">(data["transfers"sv] / data["appendNode"sv]);
     }
