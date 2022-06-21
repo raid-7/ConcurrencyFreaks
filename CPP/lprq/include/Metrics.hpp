@@ -51,15 +51,15 @@ std::ostream& operator <<(std::ostream& stream, const Metrics& metrics) {
 }
 
 template <class It>
-std::unordered_map<std::string_view, Stats<double>> metricStats(const It begin, const It end) {
-    std::unordered_map<std::string_view, std::vector<double>> data;
+std::unordered_map<std::string_view, Stats<long double>> metricStats(const It begin, const It end) {
+    std::unordered_map<std::string_view, std::vector<long double>> data;
     for (It it = begin; it != end; ++it) {
         for (auto [key, value] : it->data()) {
-            data[key].push_back(static_cast<double>(value));
+            data[key].push_back(static_cast<long double>(value));
         }
     }
 
-    std::unordered_map<std::string_view, Stats<double>> res;
+    std::unordered_map<std::string_view, Stats<long double>> res;
     for (const auto& [key, values] : data) {
         res[key] = stats(values.begin(), values.end());
     }

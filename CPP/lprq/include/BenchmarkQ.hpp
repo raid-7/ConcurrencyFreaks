@@ -71,12 +71,12 @@ using RingSizes = mpg::ParameterSet<size_t>::Of<16, 32, 64, 128, 256, 512, 1024,
 
 template <class V, size_t ring_size>
 using Queues = mpg::TypeSet<
-//        FAAArrayQueue<V, false, ring_size>,
-        LCRQueue<V, false, ring_size>
-//        FakeLCRQueue<V, false, ring_size>,
-//        LPRQueue0<V, false, ring_size>,
-//        LPRQueue2<V, false, ring_size>,
-//        LPRQueue3<V, false, ring_size>
+        FAAArrayQueue<V, false, ring_size>,
+        LCRQueue<V, false, ring_size>,
+        FakeLCRQueue<V, false, ring_size>,
+        LPRQueue0<V, false, ring_size>,
+        LPRQueue2<V, false, ring_size>,
+        LPRQueue3<V, false, ring_size>
 >;
 
 namespace {
@@ -91,7 +91,7 @@ static void printMetrics(const vector<Metrics>& metrics) {
     auto mStats = metricStats(metrics.begin(), metrics.end());
     for (auto [key, value] : mStats) {
         cout << key << ": mean " << " = " << static_cast<uint64_t>(value.mean)
-             << "; stddev = " << static_cast<uint64_t>(value.stddev) << endl;
+             << "; stddev = " << static_cast<uint64_t>(value.stddev) << '\n';
     }
 }
 
@@ -108,6 +108,27 @@ static void writeThroughputCsvData(std::ostream& stream,
     stream << benchmark << ',' << queue << ',' << numThreads << ',' << static_cast<uint64_t>(additionalWork) << ','
            << ringSize << ',' << static_cast<uint64_t>(stats.mean) << ',' << static_cast<uint64_t>(stats.stddev)
            << endl;
+}
+
+static void writeMetricCsvData(std::ostream& stream,
+                               const std::string_view benchmark, const std::string_view metric,
+                               const std::string_view queue,
+                               const int numThreads, const double additionalWork, const size_t ringSize,
+                               const Stats<long double> stats) {
+    stream << benchmark << ":get" << metric << ',' << queue << ',' << numThreads << ','
+           << static_cast<uint64_t>(additionalWork) << ','  << ringSize << ','
+           << static_cast<uint64_t>(stats.mean) << ',' << static_cast<uint64_t>(stats.stddev)
+           << endl;
+}
+
+static void writeMetricCsvData(std::ostream& stream,
+                               const std::string_view benchmark, const std::string_view queue,
+                               const int numThreads, const double additionalWork, const size_t ringSize,
+                               const vector<Metrics>& metrics) {
+    auto mStats = metricStats(metrics.begin(), metrics.end());
+    for (auto [key, value] : mStats) {
+        writeMetricCsvData(stream, benchmark, key, queue, numThreads, additionalWork, ringSize, value);
+    }
 }
 
 static uint32_t gcd(uint32_t a, uint32_t b) {
@@ -632,6 +653,7 @@ public:
             for (Metrics& m : metrics)
                 computeSecondaryMetrics(m);
             printMetrics(metrics);
+            cout << endl;
         }
 
         uint32_t prodConsGcd = gcd(numProducers, numConsumers);
@@ -646,6 +668,10 @@ public:
 
         writeThroughputCsvData(csvFile, benchName.str(), Q::className(),
                                numProducers + numConsumers, additionalWork, Q::RING_SIZE, sts);
+        if (needMetrics) {
+            writeMetricCsvData(csvFile, benchName.str(), Q::className(),
+                               numProducers + numConsumers, additionalWork, Q::RING_SIZE, metrics);
+        }
     }
 
 public:
@@ -654,7 +680,7 @@ public:
                                    const vector<pair<int, int>>& threadList,
                                    const vector<double>& additionalWorkList,
                                    const set<size_t>& ringSizeList,
-                                   const bool balancedLoad) {
+                                   const bool balancedLoad, const bool needMetrics) {
         ofstream csvFile(csvFilename);
         writeThroughputCsvHeader(csvFile);
 
@@ -665,7 +691,7 @@ public:
             for (auto numProdCons : threadList) {
                 auto numProducers = numProdCons.first;
                 auto numConsumers = numProdCons.second;
-                ProducerConsumerBenchmarkQ bench(numProducers, numConsumers, additionalWork, balancedLoad, true);
+                ProducerConsumerBenchmarkQ bench(numProducers, numConsumers, additionalWork, balancedLoad, needMetrics);
                 RingSizes::foreach([&] <size_t ring_size> () {
                     if (!ringSizeList.contains(ring_size))
                         return;

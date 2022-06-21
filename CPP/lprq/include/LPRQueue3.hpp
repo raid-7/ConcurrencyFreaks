@@ -12,7 +12,7 @@
  */
 template<typename T, bool padded_cells = true, size_t ring_size = 1024,
         size_t num_completion_counters = 32, size_t counter_concurrency_level = 8, bool padded_counters = true>
-class LPRQueue3 {
+class LPRQueue3 : public MetricsAwareBase {
 private:
     using Cell = detail::PlainCell<void*, padded_cells>;
     using CounterCell = detail::PlainCell<uint64_t, padded_counters>;
@@ -112,11 +112,13 @@ private:
 public:
     static constexpr size_t RING_SIZE = ring_size;
 
-    LPRQueue3(int maxThreads=MAX_THREADS) : maxThreads{maxThreads} {
+    LPRQueue3(int maxThreads=MAX_THREADS, bool needMetrics=false)
+            : MetricsAwareBase(maxThreads, needMetrics), maxThreads{maxThreads} {
         // Shared object init
         Node *sentinel = new Node;
         head.store(sentinel, std::memory_order_relaxed);
         tail.store(sentinel, std::memory_order_relaxed);
+        incMetric<"appendNode">(1, 0);
     }
 
 
@@ -151,9 +153,11 @@ public:
                 if (ltail->next.compare_exchange_strong(nullnode, newNode)) {// Insert new ring
                     tail.compare_exchange_strong(ltail, newNode); // Advance the tail
                     hp.clearOne(kHpTail, tid);
+                    incMetric<"appendNode">(1, tid);
                     return;
                 }
                 delete newNode;
+                incMetric<"wasteNode">(1, tid);
                 continue;
             }
 
@@ -292,4 +296,3 @@ public:
         }
     }
 };
-

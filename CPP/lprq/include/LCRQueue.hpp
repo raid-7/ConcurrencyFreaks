@@ -194,8 +194,8 @@ public:
                     incMetric<"appendNode">(1, tid);
                     return;
                 }
-                incMetric<"wasteNode">(1, tid);
                 delete newNode;
+                incMetric<"wasteNode">(1, tid);
                 continue;
             }
             Cell* cell = &ltail->array[remap[tailticket & (RING_SIZE-1)]];

@@ -32,6 +32,7 @@
 #include <atomic>
 #include <stdexcept>
 #include "RQCell.hpp"
+#include "Metrics.hpp"
 #include "HazardPointers.hpp"
 
 
@@ -79,7 +80,7 @@
  * @author Andreia Correia
  */
 template<typename T, bool padded_cells = true, int BUFFER_SIZE = 1024>
-class FAAArrayQueue {
+class FAAArrayQueue : public MetricsAwareBase {
 private:
     using Cell = detail::PlainCell<T*, padded_cells>;
 
@@ -128,11 +129,13 @@ private:
 public:
     static constexpr size_t RING_SIZE = BUFFER_SIZE;
 
-    FAAArrayQueue(int maxThreads=MAX_THREADS) : maxThreads{maxThreads} {
+    FAAArrayQueue(int maxThreads=MAX_THREADS, bool needMetrics=false)
+            : MetricsAwareBase(maxThreads, needMetrics), maxThreads{maxThreads} {
         Node* sentinelNode = new Node(nullptr);
         sentinelNode->enqidx.store(0, std::memory_order_relaxed);
         head.store(sentinelNode, std::memory_order_relaxed);
         tail.store(sentinelNode, std::memory_order_relaxed);
+        incMetric<"appendNode">(1, 0);
     }
 
 
@@ -162,8 +165,10 @@ public:
                     if (ltail->casNext(nullptr, newNode)) {
                         casTail(ltail, newNode);
                         hp.clearOne(kHpTail, tid);
+                        incMetric<"appendNode">(1, tid);
                         return;
                     }
+                    incMetric<"wasteNode">(1, tid);
                     delete newNode;
                 } else {
                     casTail(ltail, lnext);

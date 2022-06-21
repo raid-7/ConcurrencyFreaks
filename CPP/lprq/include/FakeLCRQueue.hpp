@@ -32,6 +32,7 @@
 #include <atomic>
 #include "RQCell.hpp"
 #include "x86AtomicOps.hpp"
+#include "Metrics.hpp"
 #include "HazardPointers.hpp"
 
 
@@ -41,7 +42,7 @@
  * This is LCRQ-like queue which behaves like FAAQueue, i.e. always allocates new segments.
  */
 template<typename T, bool padded_cells = true, size_t ring_size = 1024>
-class FakeLCRQueue {
+class FakeLCRQueue : public MetricsAwareBase {
 private:
     using Cell = detail::CRQCell<T*, padded_cells>;
 
@@ -121,11 +122,13 @@ private:
 public:
     static constexpr size_t RING_SIZE = ring_size;
 
-    FakeLCRQueue(int maxThreads=MAX_THREADS) : maxThreads{maxThreads} {
+    FakeLCRQueue(int maxThreads=MAX_THREADS, bool needMetrics=false)
+            : MetricsAwareBase(maxThreads, needMetrics), maxThreads{maxThreads} {
         // Shared object init
         Node *sentinel = new Node;
         head.store(sentinel, std::memory_order_relaxed);
         tail.store(sentinel, std::memory_order_relaxed);
+        incMetric<"appendNode">(1, 0);
     }
 
 
@@ -166,9 +169,11 @@ public:
                 if (ltail->next.compare_exchange_strong(nullnode, newNode)) {// Insert new ring
                     tail.compare_exchange_strong(ltail, newNode); // Advance the tail
                     hp.clearOne(kHpTail, tid);
+                    incMetric<"appendNode">(1, tid);
                     return;
                 }
                 delete newNode;
+                incMetric<"wasteNode">(1, tid);
                 continue;
             }
             Cell* cell = &ltail->array[tailticket & (RING_SIZE-1)];

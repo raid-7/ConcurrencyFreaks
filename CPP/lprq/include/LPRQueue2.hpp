@@ -32,6 +32,7 @@
 #include <atomic>
 #include "x86AtomicOps.hpp" // we use BIT_TEST_AND_SET to efficiently close segments, but may use ordinary CAS instead
 #include "RQCell.hpp"
+#include "Metrics.hpp"
 #include "HazardPointers.hpp"
 
 
@@ -66,7 +67,7 @@
  * @autor Raed Romanov
  */
 template<typename T, bool padded_cells = true, size_t ring_size = 1024>
-class LPRQueue2 {
+class LPRQueue2 : public MetricsAwareBase {
 
 private:
     using Cell = detail::CRQCell<void*, padded_cells>;
@@ -156,11 +157,13 @@ private:
 public:
     static constexpr size_t RING_SIZE = ring_size;
 
-    LPRQueue2(int maxThreads=MAX_THREADS) : maxThreads{maxThreads} {
+    LPRQueue2(int maxThreads=MAX_THREADS, bool needMetrics=false)
+            : MetricsAwareBase(maxThreads, needMetrics), maxThreads{maxThreads} {
         // Shared object init
         Node *sentinel = new Node;
         head.store(sentinel, std::memory_order_relaxed);
         tail.store(sentinel, std::memory_order_relaxed);
+        incMetric<"appendNode">(1, 0);
     }
 
 
@@ -197,9 +200,11 @@ public:
                 if (ltail->next.compare_exchange_strong(nullnode, newNode)) {// Insert new ring
                     tail.compare_exchange_strong(ltail, newNode); // Advance the tail
                     hp.clear(tid);
+                    incMetric<"appendNode">(1, tid);
                     return;
                 }
                 delete newNode;
+                incMetric<"wasteNode">(1, tid);
                 continue;
             }
             Cell* cell = &ltail->array[tailticket & (RING_SIZE-1)];
