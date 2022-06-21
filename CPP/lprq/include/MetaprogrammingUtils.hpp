@@ -2,6 +2,7 @@
 
 #include <tuple>
 #include <stdexcept>
+#include <string_view>
 
 namespace mpg {
 
@@ -43,6 +44,19 @@ struct ParameterSet {
             });
         }
     };
+};
+
+template<size_t N>
+struct TemplateStringLiteral {
+    char value[N]{};
+
+    constexpr TemplateStringLiteral(const char (&str)[N]) {
+        std::copy_n(str, N, value);
+    }
+
+    constexpr operator std::string_view() const noexcept {
+        return {value};
+    }
 };
 
 }

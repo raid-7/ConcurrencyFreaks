@@ -71,12 +71,12 @@ using RingSizes = mpg::ParameterSet<size_t>::Of<16, 32, 64, 128, 256, 512, 1024,
 
 template <class V, size_t ring_size>
 using Queues = mpg::TypeSet<
-        FAAArrayQueue<V, false, ring_size>,
-        LCRQueue<V, false, ring_size>,
-        FakeLCRQueue<V, false, ring_size>,
-        LPRQueue0<V, false, ring_size>,
-        LPRQueue2<V, false, ring_size>,
-        LPRQueue3<V, false, ring_size>
+//        FAAArrayQueue<V, false, ring_size>,
+        LCRQueue<V, false, ring_size>
+//        FakeLCRQueue<V, false, ring_size>,
+//        LPRQueue0<V, false, ring_size>,
+//        LPRQueue2<V, false, ring_size>,
+//        LPRQueue3<V, false, ring_size>
 >;
 
 namespace {
@@ -84,6 +84,15 @@ namespace {
 static void printThroughputSummary(const Stats<long double> stats, const std::string_view unit) {
     cout << "Mean " << unit << " = " << static_cast<uint64_t>(stats.mean)
          << "; Stddev = " << static_cast<uint64_t>(stats.stddev) << endl;
+}
+
+static void printMetrics(const vector<Metrics>& metrics) {
+    cout << "Metrics:\n";
+    auto mStats = metricStats(metrics.begin(), metrics.end());
+    for (auto [key, value] : mStats) {
+        cout << key << ": mean " << " = " << static_cast<uint64_t>(value.mean)
+             << "; stddev = " << static_cast<uint64_t>(value.stddev) << endl;
+    }
 }
 
 static void writeThroughputCsvHeader(std::ostream& stream) {
@@ -488,11 +497,20 @@ private:
     int numProducers, numConsumers;
     double additionalWork;
     double producerAdditionalWork{}, consumerAdditionalWork{};
+    bool needMetrics;
+
+    void computeSecondaryMetrics(Metrics& m) {
+        cout << m << endl;
+        auto data = m.data();
+        m.inc<"transfersPerNode">(data["transfers"sv] / data["appendNode"sv]);
+    }
 
 public:
     ProducerConsumerBenchmarkQ(int numProducers, int numConsumers,
-                               double additionalWork, bool balancedLoad)
-            : numProducers(numProducers), numConsumers(numConsumers), additionalWork(additionalWork) {
+                               double additionalWork, bool balancedLoad,
+                               bool needMetrics)
+            : numProducers(numProducers), numConsumers(numConsumers), additionalWork(additionalWork),
+            needMetrics(needMetrics) {
         if (balancedLoad) {
             int total = numProducers + numConsumers;
             double ref = additionalWork * 2 / total;
@@ -506,7 +524,8 @@ public:
 
 
     template<typename Q>
-    vector<long double> producerConsumerBenchmark(const milliseconds runDuration, const int numRuns) {
+    vector<long double> producerConsumerBenchmark(const milliseconds runDuration, const int numRuns,
+                                                  vector<Metrics>& metrics) {
         uint32_t transferredCount[numConsumers][numRuns];
         nanoseconds deltas[numRuns];
         Q* queue = nullptr;
@@ -522,6 +541,7 @@ public:
                 queue->enqueue(&ud, tid);
             }
 
+            queue->resetMetrics(tid);
             barrier.arrive_and_wait();
             // Measurement phase
             while (!stopFlag.load()) {
@@ -542,6 +562,7 @@ public:
                     cout << "This message must never appear; " << iter << "\n";
             }
 
+            queue->resetMetrics(tid);
             uint32_t deqCount = 0;
             barrier.arrive_and_wait();
             // Measurement phase
@@ -561,7 +582,7 @@ public:
 
         cout << "##### " << Q::className() << " #####  \n";
         for (int irun = 0; irun < numRuns; irun++) {
-            queue = new Q(numProducers + numConsumers);
+            queue = new Q(numProducers + numConsumers, needMetrics);
             thread prodConsThreads[numProducers + numConsumers];
             for (int tid = 0; tid < numProducers; tid++)
                 prodConsThreads[tid] = thread(prod_lambda, tid);
@@ -581,6 +602,7 @@ public:
             for (int tid = 0; tid < numProducers + numConsumers; tid++) {
                 prodConsThreads[tid].join();
             }
+            metrics.push_back(queue->collectMetrics());
             delete (Q*) queue;
         }
 
@@ -592,6 +614,9 @@ public:
                 totalCount += transferredCount[tid][irun];
             }
 
+            metrics[irun].inc<"transfers">(totalCount);
+            metrics[irun].inc<"duration">(deltas[irun].count());
+
             transfersPerSec[irun] = static_cast<long double>(totalCount * NSEC_IN_SEC) / deltas[irun].count();
         }
 
@@ -600,9 +625,15 @@ public:
 
     template<class Q>
     void runProducerConsumerBenchmark(std::ostream& csvFile, milliseconds runDuration, int numRuns) {
-        auto res = producerConsumerBenchmark<Q>(runDuration, numRuns);
+        vector<Metrics> metrics;
+        auto res = producerConsumerBenchmark<Q>(runDuration, numRuns, metrics);
         Stats<long double> sts = stats(res.begin(), res.end());
         printThroughputSummary(sts, "transfers/sec");
+        if (needMetrics) {
+            for (Metrics& m : metrics)
+                computeSecondaryMetrics(m);
+            printMetrics(metrics);
+        }
 
         uint32_t prodConsGcd = gcd(numProducers, numConsumers);
         uint32_t prodRatio = numProducers / prodConsGcd;
@@ -635,7 +666,7 @@ public:
             for (auto numProdCons : threadList) {
                 auto numProducers = numProdCons.first;
                 auto numConsumers = numProdCons.second;
-                ProducerConsumerBenchmarkQ bench(numProducers, numConsumers, additionalWork, balancedLoad);
+                ProducerConsumerBenchmarkQ bench(numProducers, numConsumers, additionalWork, balancedLoad, true);
                 RingSizes::foreach([&] <size_t ring_size> () {
                     if (!ringSizeList.contains(ring_size))
                         return;

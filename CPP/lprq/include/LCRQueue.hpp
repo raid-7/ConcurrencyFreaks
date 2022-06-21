@@ -34,6 +34,7 @@
 #include "x86AtomicOps.hpp"
 #include "RQCell.hpp"
 #include "CacheRemap.hpp"
+#include "Metrics.hpp"
 #include "HazardPointers.hpp"
 
 
@@ -66,10 +67,10 @@
  * @author Andreia Correia
  */
 template<typename T, bool padded_cells = true, size_t ring_size = 1024>
-class LCRQueue {
+class LCRQueue : public MetricsAwareBase {
 private:
     using Cell = detail::CRQCell<T*, padded_cells>;
-    static CacheRemap<ring_size, sizeof(Cell)> remap{};
+    static constexpr CacheRemap<ring_size, sizeof(Cell)> remap{};
 
     struct Node {
         std::atomic<int64_t> head  __attribute__ ((aligned (128)));
@@ -147,13 +148,14 @@ private:
 public:
     static constexpr size_t RING_SIZE = ring_size;
 
-    LCRQueue(int maxThreads=MAX_THREADS) : maxThreads{maxThreads} {
+    LCRQueue(int maxThreads=MAX_THREADS, bool needMetrics=false)
+        : MetricsAwareBase(maxThreads, needMetrics), maxThreads{maxThreads} {
         // Shared object init
         Node *sentinel = new Node;
         head.store(sentinel, std::memory_order_relaxed);
         tail.store(sentinel, std::memory_order_relaxed);
+        incMetric<"appendNode">(1, 0);
     }
-
 
     ~LCRQueue() {
         while (dequeue(0) != nullptr); // Drain the queue
@@ -169,7 +171,8 @@ public:
         int try_close = 0;
         while (true) {
             Node* ltail = hp.protectPtr(kHpTail, tail.load(), tid);
-            if (ltail != tail.load()) continue;
+            if (ltail != tail.load())
+                continue;
             Node *lnext = ltail->next.load();
             if (lnext != nullptr) {  // Help advance the tail
                 tail.compare_exchange_strong(ltail, lnext);
@@ -187,8 +190,11 @@ public:
                 if (ltail->next.compare_exchange_strong(nullnode, newNode)) {// Insert new ring
                     tail.compare_exchange_strong(ltail, newNode); // Advance the tail
                     hp.clearOne(kHpTail, tid);
+                    using mpg::TemplateStringLiteral;
+                    incMetric<"appendNode">(1, tid);
                     return;
                 }
+                incMetric<"wasteNode">(1, tid);
                 delete newNode;
                 continue;
             }
