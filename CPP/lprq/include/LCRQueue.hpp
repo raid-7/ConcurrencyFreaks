@@ -33,6 +33,7 @@
 #include <atomic>
 #include "x86AtomicOps.hpp"
 #include "RQCell.hpp"
+#include "CacheRemap.hpp"
 #include "HazardPointers.hpp"
 
 
@@ -68,6 +69,7 @@ template<typename T, bool padded_cells = true, size_t ring_size = 1024>
 class LCRQueue {
 private:
     using Cell = detail::CRQCell<T*, padded_cells>;
+    static CacheRemap<ring_size, sizeof(Cell)> remap;
 
     struct Node {
         std::atomic<int64_t> head  __attribute__ ((aligned (128)));
@@ -77,8 +79,8 @@ private:
 
         Node() {
             for (unsigned i = 0; i < RING_SIZE; i++) {
-                array[i].val.store(nullptr, std::memory_order_relaxed);
-                array[i].idx.store(i, std::memory_order_relaxed);
+                array[remap[i]].val.store(nullptr, std::memory_order_relaxed);
+                array[remap[i]].idx.store(i, std::memory_order_relaxed);
             }
             head.store(0, std::memory_order_relaxed);
             tail.store(0, std::memory_order_relaxed);
@@ -160,7 +162,7 @@ public:
 
     static std::string className() {
         using namespace std::string_literals;
-        return "LCRQueue"s + (padded_cells ? "/ca"s : ""s); 
+        return "LCRQueue"s + (padded_cells ? "/ca"s : "/remap"s);
     }
 
     void enqueue(T* item, const int tid) {
@@ -179,8 +181,8 @@ public:
                 Node* newNode = new Node();
                 // Solo enqueue (superfluous?)
                 newNode->tail.store(1, std::memory_order_relaxed);
-                newNode->array[0].val.store(item, std::memory_order_relaxed);
-                newNode->array[0].idx.store(0, std::memory_order_relaxed);
+                newNode->array[remap[0]].val.store(item, std::memory_order_relaxed);
+                newNode->array[remap[0]].idx.store(0, std::memory_order_relaxed);
                 Node* nullnode = nullptr;
                 if (ltail->next.compare_exchange_strong(nullnode, newNode)) {// Insert new ring
                     tail.compare_exchange_strong(ltail, newNode); // Advance the tail
@@ -190,7 +192,7 @@ public:
                 delete newNode;
                 continue;
             }
-            Cell* cell = &ltail->array[tailticket & (RING_SIZE-1)];
+            Cell* cell = &ltail->array[remap[tailticket & (RING_SIZE-1)]];
             uint64_t idx = cell->idx.load();
             if (cell->val.load() == nullptr) {
                 if (node_index(idx) <= tailticket) {
@@ -237,7 +239,7 @@ public:
             }
 
             uint64_t headticket = lhead->head.fetch_add(1);
-            Cell* cell = &lhead->array[headticket & (RING_SIZE-1)];
+            Cell* cell = &lhead->array[remap[headticket & (RING_SIZE-1)]];
 
             int r = 0;
             uint64_t tt = 0;
