@@ -523,6 +523,7 @@ private:
     void computeSecondaryMetrics(Metrics& m) {
         auto data = m.data();
         m.inc<"transfersPerNode">(data["transfers"sv] / data["appendNode"sv]);
+        m.inc<"wasteToAppendNodeRatio">(data["wasteNode"sv] / data["appendNode"sv]);
     }
 
 public:
