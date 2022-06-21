@@ -90,7 +90,7 @@ static void printMetrics(const vector<Metrics>& metrics) {
     cout << "Metrics:\n";
     auto mStats = metricStats(metrics.begin(), metrics.end());
     for (auto [key, value] : mStats) {
-        cout << key << ": mean " << " = " << static_cast<uint64_t>(value.mean)
+        cout << key << ": mean = " << static_cast<uint64_t>(value.mean)
              << "; stddev = " << static_cast<uint64_t>(value.stddev) << '\n';
     }
 }
@@ -634,6 +634,7 @@ public:
                 totalCount += transferredCount[tid][irun];
             }
 
+            metrics[irun].inc<"appendNode">(1); // 1 node always exists, but we reset metrics and lose it
             metrics[irun].inc<"transfers">(totalCount);
             metrics[irun].inc<"duration">(deltas[irun].count());
 
