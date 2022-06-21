@@ -69,7 +69,7 @@ template<typename T, bool padded_cells = true, size_t ring_size = 1024>
 class LCRQueue {
 private:
     using Cell = detail::CRQCell<T*, padded_cells>;
-    static CacheRemap<ring_size, sizeof(Cell)> remap;
+    static CacheRemap<ring_size, sizeof(Cell)> remap{};
 
     struct Node {
         std::atomic<int64_t> head  __attribute__ ((aligned (128)));
