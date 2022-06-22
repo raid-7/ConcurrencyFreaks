@@ -30,10 +30,14 @@ int main(int argc, char *argv[]){
     app.add_option("-r,--ring-size", ringSizes, "Ring size")
         ->check(CLI::IsMember(bench::RingSizes::Values));
 
+    bool needMetrics = false;
+    app.add_flag("-m,--collect-metrics", needMetrics, "Collect additional metrics");
+
     CLI11_PARSE(app, argc, argv);
 
     std::regex queueFilterR = std::regex(queueFilter, std::regex::ECMAScript | std::regex::icase | std::regex::nosubs);
-    bench::SymmetricBenchmarkQ::allThroughputTests(csvFilename, queueFilterR, numThreads, additionalWork, ringSizes);
+    bench::SymmetricBenchmarkQ::allThroughputTests(csvFilename, queueFilterR, numThreads, additionalWork, ringSizes,
+                                                   needMetrics);
 
     return 0;
 }

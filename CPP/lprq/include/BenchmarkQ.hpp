@@ -39,6 +39,7 @@
 #include <cassert>
 #include <fstream>
 #include <sstream>
+#include <iomanip>
 #include <regex>
 #include <AdditionalWork.hpp>
 #include <Stats.hpp>
@@ -117,7 +118,7 @@ static void writeMetricCsvData(std::ostream& stream,
                                const Stats<long double> stats) {
     stream << benchmark << ":get" << metric << ',' << queue << ',' << numThreads << ','
            << static_cast<uint64_t>(additionalWork) << ','  << ringSize << ','
-           << static_cast<uint64_t>(stats.mean) << ',' << static_cast<uint64_t>(stats.stddev)
+           << fixed << setprecision(2) << stats.mean << ',' << stats.stddev
            << endl;
 }
 
@@ -137,6 +138,14 @@ static uint32_t gcd(uint32_t a, uint32_t b) {
     } else {
         return gcd(b, a % b);
     }
+}
+
+template <class Q>
+size_t drainQueueAndCountElements(Q& queue, int tid) {
+    size_t cnt = 0;
+    while (queue.dequeue(tid) != nullptr)
+        ++cnt;
+    return cnt;
 }
 
 struct UserData {
@@ -201,10 +210,18 @@ private:
 
     int numThreads;
     double additionalWork;
+    bool needMetrics;
+
+
+    void computeSecondaryMetrics(Metrics& m) {
+        auto data = m.data();
+        m.inc<"transfersPerNode">(data["transfers"sv] / data["appendNode"sv]);
+        m.inc<"wasteToAppendNodeRatio">(data["wasteNode"sv] / data["appendNode"sv]);
+    }
 
 public:
-    SymmetricBenchmarkQ(int numThreads, double additionalWork)
-            : numThreads(numThreads), additionalWork(std::max(additionalWork, 0.5)) {}
+    SymmetricBenchmarkQ(int numThreads, double additionalWork, bool needMetrics)
+            : numThreads(numThreads), additionalWork(std::max(additionalWork, 0.5)), needMetrics(needMetrics) {}
 
 
     /**
@@ -212,7 +229,7 @@ public:
      * the benchmark executes 10^8 pairs partitioned evenly among all threads;
      */
     template<typename Q>
-    vector<long double> enqDeqBenchmark(const long numPairs, const int numRuns) {
+    vector<long double> enqDeqBenchmark(const long numPairs, const int numRuns, vector<Metrics>& metrics) {
         nanoseconds deltas[numThreads][numRuns];
         atomic<bool> startFlag = {false};
         Q* queue = nullptr;
@@ -225,6 +242,9 @@ public:
                 queue->enqueue(&ud, tid);
                 if (queue->dequeue(tid) == nullptr) cout << "Error at warmup dequeueing iter=" << iter << "\n";
             }
+
+            queue->resetMetrics(tid);
+
             // Measurement phase
             auto startBeats = steady_clock::now();
             for (long long iter = 0; iter < numPairs / numThreads; iter++) {
@@ -239,15 +259,19 @@ public:
 
         cout << "##### " << Q::className() << " #####  \n";
         for (int irun = 0; irun < numRuns; irun++) {
-            queue = new Q(numThreads);
+            queue = new Q(numThreads, needMetrics);
             thread enqdeqThreads[numThreads];
             for (int tid = 0; tid < numThreads; tid++)
                 enqdeqThreads[tid] = thread(enqdeq_lambda, &deltas[tid][irun], tid);
             startFlag.store(true);
             // Sleep for 2 seconds just to let the threads see the startFlag
             this_thread::sleep_for(2s);
-            for (int tid = 0; tid < numThreads; tid++) enqdeqThreads[tid].join();
+            for (int tid = 0; tid < numThreads; tid++)
+                enqdeqThreads[tid].join();
             startFlag.store(false);
+
+            metrics.emplace_back(queue->collectMetrics());
+
             delete (Q*) queue;
         }
 
@@ -260,6 +284,9 @@ public:
             }
 
             opsPerSec[irun] = static_cast<long double>(numPairs * 2 * NSEC_IN_SEC * numThreads) / agg.count();
+
+            metrics[irun].inc<"appendNode">(1); // 1 node always exists, but we reset metrics and lose it
+            metrics[irun].inc<"transfers">((numPairs / numThreads) * numThreads);
         }
 
         return opsPerSec;
@@ -446,10 +473,25 @@ public:
 
     template<class Q>
     void runEnqDeqBenchmark(std::ostream& csvFile, int numPairs, int numRuns) {
-        auto res = enqDeqBenchmark<Q>(numPairs, numRuns);
+        vector<Metrics> metrics;
+        auto res = enqDeqBenchmark<Q>(numPairs, numRuns, metrics);
         Stats<long double> sts = stats(res.begin(), res.end());
         printThroughputSummary(sts, "ops/sec");
-        writeThroughputCsvData(csvFile, "enqDeqPairs", Q::className(), numThreads, additionalWork, Q::RING_SIZE, sts);
+
+        if (needMetrics) {
+            for (Metrics& m : metrics)
+                computeSecondaryMetrics(m);
+            printMetrics(metrics);
+            cout << endl;
+        }
+
+        writeThroughputCsvData(csvFile, "enqDeqPairs", Q::className(),
+                               numThreads, additionalWork, Q::RING_SIZE, sts);
+
+        if (needMetrics) {
+            writeMetricCsvData(csvFile, "enqDeqPairs", Q::className(),
+                               numThreads, additionalWork, Q::RING_SIZE, metrics);
+        }
     }
 
 public:
@@ -458,7 +500,8 @@ public:
                                    const std::regex& queueFilter,
                                    const vector<int>& threadList,
                                    const vector<double>& additionalWorkList,
-                                   const set<size_t>& ringSizeList) {
+                                   const set<size_t>& ringSizeList,
+                                   const bool needMetrics) {
         ofstream csvFile(csvFilename);
         writeThroughputCsvHeader(csvFile);
 
@@ -469,7 +512,7 @@ public:
             for (int nThreads: threadList) {
                 const int numPairs = std::min(nThreads * 1'000'000, 10'000'000);
 
-                SymmetricBenchmarkQ bench(nThreads, additionalWork);
+                SymmetricBenchmarkQ bench(nThreads, additionalWork, needMetrics);
                 RingSizes::foreach([&] <size_t ring_size> () {
                     if (!ringSizeList.contains(ring_size))
                         return;
@@ -623,7 +666,10 @@ public:
             for (int tid = 0; tid < numProducers + numConsumers; tid++) {
                 prodConsThreads[tid].join();
             }
-            metrics.push_back(queue->collectMetrics());
+
+            Metrics queueMetrics = queue->collectMetrics();
+            queueMetrics.inc<"remainedElements">(drainQueueAndCountElements(*queue, 0));
+            metrics.emplace_back(std::move(queueMetrics));
             delete (Q*) queue;
         }
 

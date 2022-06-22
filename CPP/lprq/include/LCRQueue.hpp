@@ -188,7 +188,6 @@ public:
                 if (ltail->next.compare_exchange_strong(nullnode, newNode)) {// Insert new ring
                     tail.compare_exchange_strong(ltail, newNode); // Advance the tail
                     hp.clearOne(kHpTail, tid);
-                    using mpg::TemplateStringLiteral;
                     incMetric<"appendNode">(1, tid);
                     return;
                 }
