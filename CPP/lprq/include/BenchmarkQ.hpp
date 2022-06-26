@@ -43,6 +43,7 @@
 #include <regex>
 #include <AdditionalWork.hpp>
 #include <Stats.hpp>
+#include "ThreadGroup.hpp"
 #include "MetaprogrammingUtils.hpp"
 #include "MichaelScottQueue.hpp"
 #include "FAAArrayQueue.hpp"
@@ -202,13 +203,9 @@ private:
     // Performance benchmark constants
     static const long long kNumPairsWarmup = 1'000'000LL;     // Each thread does 1M iterations as warmup
 
-    // Contants for Ping-Pong performance benchmark
-    static const int kPingPongBatch = 1000;            // Each thread starts by injecting 1k items in the queue
-
-
     static const long long NSEC_IN_SEC = 1000000000LL;
 
-    int numThreads;
+    size_t numThreads;
     double additionalWork;
     bool needMetrics;
 
@@ -220,7 +217,7 @@ private:
     }
 
 public:
-    SymmetricBenchmarkQ(int numThreads, double additionalWork, bool needMetrics)
+    SymmetricBenchmarkQ(size_t numThreads, double additionalWork, bool needMetrics)
             : numThreads(numThreads), additionalWork(std::max(additionalWork, 0.5)), needMetrics(needMetrics) {}
 
 
@@ -229,45 +226,43 @@ public:
      * the benchmark executes 10^8 pairs partitioned evenly among all threads;
      */
     template<typename Q>
-    vector<long double> enqDeqBenchmark(const long numPairs, const int numRuns, vector<Metrics>& metrics) {
+    vector<long double> enqDeqBenchmark(const size_t numPairs, const int numRuns, vector<Metrics>& metrics) {
         nanoseconds deltas[numThreads][numRuns];
         atomic<bool> startFlag = {false};
         Q* queue = nullptr;
 
-        auto enqdeq_lambda = [this, &startFlag, &numPairs, &queue](nanoseconds* delta, const int tid) {
+        auto enqdeq_lambda = [this, &startFlag, &numPairs, &queue](const int tid) {
             UserData ud(0, 0);
             while (!startFlag.load()) {} // Spin until the startFlag is set
             // Warmup phase
-            for (long long iter = 0; iter < kNumPairsWarmup / numThreads; iter++) {
+            for (size_t iter = 0; iter < kNumPairsWarmup / numThreads; iter++) {
                 queue->enqueue(&ud, tid);
-                if (queue->dequeue(tid) == nullptr) cout << "Error at warmup dequeueing iter=" << iter << "\n";
+                if (queue->dequeue(tid) == nullptr)
+                    cout << "Error at warmup dequeueing iter=" << iter << "\n";
             }
 
             queue->resetMetrics(tid);
 
             // Measurement phase
             auto startBeats = steady_clock::now();
-            for (long long iter = 0; iter < numPairs / numThreads; iter++) {
+            for (size_t iter = 0; iter < numPairs / numThreads; iter++) {
                 queue->enqueue(&ud, tid);
                 random_additional_work(additionalWork);
                 if (queue->dequeue(tid) == nullptr) cout << "Error at measurement dequeueing iter=" << iter << "\n";
                 random_additional_work(additionalWork);
             }
             auto stopBeats = steady_clock::now();
-            *delta = stopBeats - startBeats;
+            return stopBeats - startBeats;
         };
 
         cout << "##### " << Q::className() << " #####  \n";
         for (int irun = 0; irun < numRuns; irun++) {
             queue = new Q(numThreads, needMetrics);
-            thread enqdeqThreads[numThreads];
-            for (int tid = 0; tid < numThreads; tid++)
-                enqdeqThreads[tid] = thread(enqdeq_lambda, &deltas[tid][irun], tid);
+            ThreadGroup threads{};
+            for (size_t i = 0; i < numThreads; ++i)
+                threads.threadWithResult(enqdeq_lambda, deltas[i][irun]);
             startFlag.store(true);
-            // Sleep for 2 seconds just to let the threads see the startFlag
-            this_thread::sleep_for(2s);
-            for (int tid = 0; tid < numThreads; tid++)
-                enqdeqThreads[tid].join();
+            threads.join();
             startFlag.store(false);
 
             metrics.emplace_back(queue->collectMetrics());
@@ -279,8 +274,8 @@ public:
         vector<long double> opsPerSec(numRuns);
         for (int irun = 0; irun < numRuns; irun++) {
             auto agg = 0ns;
-            for (int tid = 0; tid < numThreads; tid++) {
-                agg += deltas[tid][irun];
+            for (size_t i = 0; i < numThreads; ++i) {
+                agg += deltas[i][irun];
             }
 
             opsPerSec[irun] = static_cast<long double>(numPairs * 2 * NSEC_IN_SEC * numThreads) / agg.count();
@@ -290,185 +285,6 @@ public:
         }
 
         return opsPerSec;
-    }
-
-
-    /**
-     * Start with only enqueues 100K/numThreads, wait for them to finish, then do only dequeues but only 100K/numThreads
-     */
-    template<typename Q>
-    void burstBenchmark(const long long burstSize, const int numIters, const int numRuns) {
-        Result results[numThreads][numRuns];
-        atomic<bool> startEnq = {false};
-        atomic<bool> startDeq = {false};
-        atomic<long> barrier = {0};
-        Q* queue = nullptr;
-
-        auto burst_lambda = [this, &startEnq, &startDeq, &burstSize, &barrier, &numIters, &queue](Result* res,
-                                                                                                  const int tid) {
-            UserData ud(0, 0);
-
-            // Warmup
-            const long long warmupIters = 100000LL;  // Do 1M for each thread as a warmup
-            for (long long iter = 0; iter < warmupIters; iter++) queue->enqueue(&ud, tid);
-            for (long long iter = 0; iter < warmupIters; iter++) {
-                if (queue->dequeue(tid) == nullptr) cout << "ERROR: warmup dequeued nullptr in iter=" << iter << "\n";
-            }
-            // Measurements
-            for (int iter = 0; iter < numIters; iter++) {
-                // Start with enqueues
-                while (!startEnq.load()) this_thread::yield();
-                auto startBeats = steady_clock::now();
-                for (long long iter = 0; iter < burstSize / numThreads; iter++) {
-                    queue->enqueue(&ud, tid);
-                }
-                auto stopBeats = steady_clock::now();
-                res->nsEnq += (stopBeats - startBeats);
-                if (barrier.fetch_add(1) == numThreads) cout << "ERROR: in barrier\n";
-                // dequeues
-                while (!startDeq.load()) this_thread::yield();
-                startBeats = steady_clock::now();
-                for (long long iter = 0; iter < burstSize / numThreads; iter++) {
-                    if (queue->dequeue(tid) == nullptr) {
-                        cout << "ERROR: dequeued nullptr in iter=" << iter << "\n";
-                        assert(false);
-                    }
-                }
-                stopBeats = steady_clock::now();
-                res->nsDeq += (stopBeats - startBeats);
-                if (barrier.fetch_add(1) == numThreads) cout << "ERROR: in barrier\n";
-                res->numEnq += burstSize / numThreads;
-                res->numDeq += burstSize / numThreads;
-            }
-        };
-
-        auto startAll = steady_clock::now();
-        for (int irun = 0; irun < numRuns; irun++) {
-            queue = new Q(numThreads);
-            if (irun == 0) cout << "##### " << queue->className() << " #####  \n";
-            thread burstThreads[numThreads];
-            for (int tid = 0; tid < numThreads; tid++)
-                burstThreads[tid] = thread(burst_lambda, &results[tid][irun], tid);
-            this_thread::sleep_for(100ms);
-            for (int iter = 0; iter < numIters; iter++) {
-                // enqueue round
-                startEnq.store(true);
-                while (barrier.load() != numThreads) this_thread::yield();
-                startEnq.store(false);
-                long tmp = numThreads;
-                if (!barrier.compare_exchange_strong(tmp, 0)) cout << "ERROR: CAS\n";
-                // dequeue round
-                startDeq.store(true);
-                while (barrier.load() != numThreads) this_thread::yield();
-                startDeq.store(false);
-                tmp = numThreads;
-                if (!barrier.compare_exchange_strong(tmp, 0)) cout << "ERROR: CAS\n";
-            }
-            for (int tid = 0; tid < numThreads; tid++) burstThreads[tid].join();
-            delete queue;
-        }
-        auto endAll = steady_clock::now();
-        milliseconds totalMs = duration_cast<milliseconds>(endAll - startAll);
-
-        // Accounting
-        vector<Result> agg(numRuns);
-        for (int irun = 0; irun < numRuns; irun++) {
-            for (int tid = 0; tid < numThreads; tid++) {
-                agg[irun].nsEnq += results[tid][irun].nsEnq;
-                agg[irun].nsDeq += results[tid][irun].nsDeq;
-                agg[irun].numEnq += results[tid][irun].numEnq;
-                agg[irun].numDeq += results[tid][irun].numDeq;
-            }
-            agg[irun].totOpsSec = (agg[irun].numEnq + agg[irun].numDeq) * NSEC_IN_SEC /
-                                  (agg[irun].nsEnq.count() + agg[irun].nsDeq.count());
-        }
-
-        // Compute the median. numRuns should be an odd number
-        sort(agg.begin(), agg.end());
-        Result median = agg[numRuns / 2];
-        const long long NSEC_IN_SEC = 1000000000LL;
-        const long long allThreadsEnqPerSec = numThreads * median.numEnq * NSEC_IN_SEC / median.nsEnq.count();
-        const long long allThreadsDeqPerSec = numThreads * median.numDeq * NSEC_IN_SEC / median.nsDeq.count();
-
-        // Printed value is the median of the number of ops per second that all threads were able to accomplish (on average)
-        cout << "Enq/sec = " << allThreadsEnqPerSec << "   Deq/sec = " << allThreadsDeqPerSec <<
-             "   Total = " << (median.numEnq + median.numDeq) << "   Ops/sec = " << median.totOpsSec << "\n";
-
-        // TODO: Print csv values
-    }
-
-
-    template<typename Q>
-    void pingPongBenchmark(const seconds testLengthSeconds, const int numRuns) {
-        Result results[numThreads][numRuns];
-        atomic<bool> quit = {false};
-        atomic<bool> startFlag = {false};
-        Q* queue = nullptr;
-
-        auto pingpong_lambda = [&quit, &startFlag, &queue](Result* res, const int tid) {
-            UserData ud(0, 0);
-            nanoseconds nsEnq = 0ns;
-            nanoseconds nsDeq = 0ns;
-            long long numEnq = 0;
-            long long numDeq = 0;
-            while (!startFlag.load()) this_thread::yield();
-            while (!quit.load()) {
-                // Always do kPingPongBatch (1k) enqueues and measure the time
-                auto startBeats = steady_clock::now();
-                for (int i = 0; i < kPingPongBatch; i++) { queue->enqueue(&ud, tid); /*this_thread::sleep_for(50ms);*/ }
-                auto stopBeats = steady_clock::now();
-                numEnq += kPingPongBatch;
-                nsEnq += (stopBeats - startBeats);
-                // Do dequeues until queue is empty, measure the time, and count how many were non-null
-                startBeats = steady_clock::now();
-                stopBeats = startBeats;
-                while (queue->dequeue(tid) != nullptr) {
-                    numDeq++; /*this_thread::sleep_for(50ms);*/
-                    stopBeats = steady_clock::now();
-                }
-                nsDeq += (stopBeats - startBeats);
-            }
-            res->nsEnq = nsEnq;
-            res->nsDeq = nsDeq;
-            res->numEnq = numEnq;
-            res->numDeq = numDeq;
-        };
-
-        for (int irun = 0; irun < numRuns; irun++) {
-            queue = new Q(numThreads);
-            if (irun == 0) cout << "##### " << queue->className() << " #####  \n";
-            thread pingpongThreads[numThreads];
-            for (int tid = 0; tid < numThreads; tid++)
-                pingpongThreads[tid] = thread(pingpong_lambda, &results[tid][irun], tid);
-            startFlag.store(true);
-            // Sleep for 20 seconds
-            this_thread::sleep_for(testLengthSeconds);
-            quit.store(true);
-            for (int tid = 0; tid < numThreads; tid++) pingpongThreads[tid].join();
-            quit.store(false);
-            startFlag.store(false);
-            delete queue;
-        }
-
-        // Accounting
-        vector<Result> agg(numRuns);
-        for (int irun = 0; irun < numRuns; irun++) {
-            for (int tid = 0; tid < numThreads; tid++) {
-                agg[irun].nsEnq += results[tid][irun].nsEnq;
-                agg[irun].nsDeq += results[tid][irun].nsDeq;
-                agg[irun].numEnq += results[tid][irun].numEnq;
-                agg[irun].numDeq += results[tid][irun].numDeq;
-            }
-        }
-
-        // Compute the median. numRuns should be an odd number
-        sort(agg.begin(), agg.end());
-        Result median = agg[numRuns / 2];
-        const long long NSEC_IN_SEC = 1000000000LL;
-        // Printed value is the median of the number of ops per second that all threads were able to accomplish (on average)
-        cout << "Enq/sec=" << numThreads * median.numEnq * NSEC_IN_SEC / median.nsEnq.count() << "   Deq/sec="
-             << numThreads * median.numDeq * NSEC_IN_SEC / median.nsDeq.count() << "   Total="
-             << numThreads * (median.numEnq + median.numDeq) << "\n";
     }
 
     template<class Q>
@@ -510,7 +326,7 @@ public:
         // Enq-Deq Throughput benchmarks
         for (double additionalWork: additionalWorkList) {
             for (int nThreads: threadList) {
-                const int numPairs = std::min(nThreads * 1'000'000, 10'000'000);
+                const int numPairs = std::min(nThreads * 1'600'000, 10'000'000);
 
                 SymmetricBenchmarkQ bench(nThreads, additionalWork, needMetrics);
                 RingSizes::foreach([&] <size_t ring_size> () {
@@ -558,7 +374,7 @@ private:
 
     static const long long NSEC_IN_SEC = 1000000000LL;
 
-    int numProducers, numConsumers;
+    size_t numProducers, numConsumers;
     double additionalWork;
     double producerAdditionalWork{}, consumerAdditionalWork{};
     bool needMetrics;
@@ -570,13 +386,13 @@ private:
     }
 
 public:
-    ProducerConsumerBenchmarkQ(int numProducers, int numConsumers,
+    ProducerConsumerBenchmarkQ(size_t numProducers, size_t numConsumers,
                                double additionalWork, bool balancedLoad,
                                bool needMetrics)
             : numProducers(numProducers), numConsumers(numConsumers), additionalWork(additionalWork),
             needMetrics(needMetrics) {
         if (balancedLoad) {
-            int total = numProducers + numConsumers;
+            size_t total = numProducers + numConsumers;
             double ref = additionalWork * 2 / total;
             producerAdditionalWork = numProducers * ref;
             consumerAdditionalWork = numConsumers * ref;
@@ -601,7 +417,7 @@ public:
 
             barrier.arrive_and_wait();
             // Warmup phase
-            for (long long iter = 0; iter < kNumPairsWarmup / numProducers; iter++) {
+            for (size_t iter = 0; iter < kNumPairsWarmup / numProducers; iter++) {
                 queue->enqueue(&ud, tid);
             }
 
@@ -614,12 +430,12 @@ public:
             }
         };
 
-        auto cons_lambda = [this, &stopFlag, &queue, &barrier](uint32_t* cnt, const int tid) {
+        auto cons_lambda = [this, &stopFlag, &queue, &barrier](const int tid) {
             UserData dummy;
 
             barrier.arrive_and_wait();
             // Warmup phase
-            for (long long iter = 0; iter < kNumPairsWarmup / numConsumers + 1; iter++) {
+            for (size_t iter = 0; iter < kNumPairsWarmup / numConsumers + 1; iter++) {
                 UserData* d = queue->dequeue(tid);
                 if (d != nullptr && d->seq > 0)
                     // side effect to prevent DCE
@@ -641,17 +457,17 @@ public:
                 random_additional_work(consumerAdditionalWork);
             }
 
-            *cnt = deqCount;
+            return deqCount;
         };
 
         cout << "##### " << Q::className() << " #####  \n";
         for (int irun = 0; irun < numRuns; irun++) {
             queue = new Q(numProducers + numConsumers, needMetrics);
-            thread prodConsThreads[numProducers + numConsumers];
-            for (int tid = 0; tid < numProducers; tid++)
-                prodConsThreads[tid] = thread(prod_lambda, tid);
-            for (int tid = numProducers; tid < numProducers + numConsumers; tid++)
-                prodConsThreads[tid] = thread(cons_lambda, &transferredCount[tid - numProducers][irun], tid);
+            ThreadGroup threads{};
+            for (size_t i = 0; i < numProducers; ++i)
+                threads.thread(prod_lambda);
+            for (size_t i = 0; i < numConsumers; ++i)
+                threads.threadWithResult(cons_lambda, transferredCount[i][irun]);
 
             stopFlag.store(false);
             barrier.arrive_and_wait(); // start warmup
@@ -663,9 +479,7 @@ public:
 
             deltas[irun] = duration_cast<nanoseconds>(endAll - startAll);
 
-            for (int tid = 0; tid < numProducers + numConsumers; tid++) {
-                prodConsThreads[tid].join();
-            }
+            threads.join();
 
             Metrics queueMetrics = queue->collectMetrics();
             queueMetrics.inc<"remainedElements">(drainQueueAndCountElements(*queue, 0));
@@ -677,8 +491,8 @@ public:
         vector<long double> transfersPerSec(numRuns);
         for (int irun = 0; irun < numRuns; irun++) {
             uint32_t totalCount = 0;
-            for (int tid = 0; tid < numConsumers; tid++) {
-                totalCount += transferredCount[tid][irun];
+            for (size_t i = 0; i < numConsumers; ++i) {
+                totalCount += transferredCount[i][irun];
             }
 
             metrics[irun].inc<"appendNode">(1); // 1 node always exists, but we reset metrics and lose it
