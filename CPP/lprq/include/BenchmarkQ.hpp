@@ -376,6 +376,7 @@ private:
     size_t numProducers, numConsumers;
     double additionalWork;
     double producerAdditionalWork{}, consumerAdditionalWork{};
+    bool balancedLoad;
     bool needMetrics;
 
     void computeSecondaryMetrics(Metrics& m) {
@@ -388,7 +389,7 @@ public:
                                double additionalWork, bool balancedLoad,
                                bool needMetrics)
             : numProducers(numProducers), numConsumers(numConsumers), additionalWork(additionalWork),
-            needMetrics(needMetrics) {
+            balancedLoad(balancedLoad), needMetrics(needMetrics) {
         if (balancedLoad) {
             size_t total = numProducers + numConsumers;
             double ref = additionalWork * 2 / total;
@@ -397,14 +398,6 @@ public:
         } else {
             producerAdditionalWork = additionalWork;
             consumerAdditionalWork = additionalWork;
-        }
-
-        if (balancedLoad && consumerAdditionalWork > 1.0) {
-            // we intentionally speed up consumers to ensure the queue does not grow indefinitely
-            // the following adjustment strategy is experimental
-
-            consumerAdditionalWork -= min(1., consumerAdditionalWork * 0.3);
-            consumerAdditionalWork = max(1.0, consumerAdditionalWork);
         }
     }
 
@@ -430,8 +423,17 @@ public:
             queue->resetMetrics(tid);
             barrier.arrive_and_wait();
             // Measurement phase
+            uint64_t iter = 0;
             while (!stopFlag.load()) {
-                queue->enqueue(&ud, tid);
+                // in case of balances load slow down producers if the queue starts growing too much
+                // do not check size too often because it involves hazard pointers protection
+                // note, estimateSize is more or less accurate only if the queue consists of one segment
+                if ((iter & ((1ull << 8) - 1)) != 0 || !balancedLoad ||
+                    queue->estimateSize(tid) < Q::RING_SIZE * 3 / 4) {
+
+                    queue->enqueue(&ud, tid);
+                    ++iter;
+                }
                 random_additional_work(producerAdditionalWork);
             }
         };
@@ -535,7 +537,7 @@ public:
         uint32_t consRatio = numConsumers / prodConsGcd;
         ostringstream benchName{};
         benchName << "producerConsumer[" << prodRatio << '/' << consRatio;
-        if (producerAdditionalWork != consumerAdditionalWork) {
+        if (balancedLoad) {
             benchName << ";balanced";
         }
         benchName << "]";
