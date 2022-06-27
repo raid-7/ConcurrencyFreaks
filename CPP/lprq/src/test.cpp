@@ -187,5 +187,6 @@ TYPED_TEST(ConcurrentQueueTest, ProducerConsumer) {
     std::multiset<UserData> consJoined;
     for (const auto& data : consumerData)
         consJoined.insert(data.begin(), data.end());
+    EXPECT_EQ(prodsJoined.size(), consJoined.size());
     EXPECT_EQ(prodsJoined, consJoined);
 }

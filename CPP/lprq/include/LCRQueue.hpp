@@ -1,40 +1,9 @@
-/******************************************************************************
- * Copyright (c) 2014-2016, Pedro Ramalhete, Andreia Correia
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *     * Redistributions of source code must retain the above copyright
- *       notice, this list of conditions and the following disclaimer.
- *     * Redistributions in binary form must reproduce the above copyright
- *       notice, this list of conditions and the following disclaimer in the
- *       documentation and/or other materials provided with the distribution.
- *     * Neither the name of Concurrency Freaks nor the
- *       names of its contributors may be used to endorse or promote products
- *       derived from this software without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
- * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE FOR ANY
- * DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
- * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
- * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
- * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- ******************************************************************************
- */
-
-#ifndef _LCRQ_QUEUE_HP_H_
-#define _LCRQ_QUEUE_HP_H_
-
+#pragma once
 
 #include <atomic>
-#include "x86AtomicOps.hpp"
+#include "LinkedRingQueue.hpp"
 #include "RQCell.hpp"
-#include "Metrics.hpp"
-#include "HazardPointers.hpp"
+#include "x86AtomicOps.hpp"
 
 
 /**
@@ -64,247 +33,125 @@
  *
  * @author Pedro Ramalhete
  * @author Andreia Correia
+ * @author Raed Romanov
  */
-template<typename T, bool padded_cells = true, size_t ring_size = 1024>
-class LCRQueue : public MetricsAwareBase {
+template<typename T, bool padded_cells, size_t ring_size>
+class CRQueue : public QueueSegmentBase<T, CRQueue<T, padded_cells, ring_size>> {
 private:
+    using Base = QueueSegmentBase<T, CRQueue<T, padded_cells, ring_size>>;
     using Cell = detail::CRQCell<T*, padded_cells>;
 
-    struct Node {
-        std::atomic<int64_t> head  __attribute__ ((aligned (128)));
-        std::atomic<int64_t> tail  __attribute__ ((aligned (128)));
-        std::atomic<Node*> next    __attribute__ ((aligned (128)));
-        Cell array[ring_size];
+    Cell array[ring_size];
 
-        Node() {
-            for (unsigned i = 0; i < RING_SIZE; i++) {
-                array[i].val.store(nullptr, std::memory_order_relaxed);
-                array[i].idx.store(i, std::memory_order_relaxed);
-            }
-            head.store(0, std::memory_order_relaxed);
-            tail.store(0, std::memory_order_relaxed);
-            next.store(nullptr, std::memory_order_relaxed);
-        }
-    };
-
-    alignas(128) std::atomic<Node*> head;
-    alignas(128) std::atomic<Node*> tail;
-
-    static const int MAX_THREADS = 128;
-    const int maxThreads;
-
-    HazardPointers<Node> hp {1, maxThreads};
-    const int kHpTail = 0;
-    const int kHpHead = 0;
-
-    MetricsCollector::Accessor mAppendNode = accessor("appendNode");
-    MetricsCollector::Accessor mWasteNode = accessor("wasteNode");
-
-
-    uint64_t node_index(uint64_t i) {
+    inline uint64_t node_index(uint64_t i) {
         return (i & ~(1ull << 63));
     }
 
-    uint64_t set_unsafe(uint64_t i) {
+    inline uint64_t set_unsafe(uint64_t i) {
         return (i | (1ull << 63));
     }
 
-    uint64_t node_unsafe(uint64_t i) {
+    inline uint64_t node_unsafe(uint64_t i) {
         return (i & (1ull << 63));
-    }
-
-    inline uint64_t tail_index(uint64_t t) {
-        return (t & ~(1ull << 63));
-    }
-
-    int crq_is_closed(uint64_t t) {
-        return (t & (1ull << 63)) != 0;
-    }
-
-    void fixState(Node *lhead) {
-        while (1) {
-            uint64_t t = lhead->tail.fetch_add(0);
-            uint64_t h = lhead->head.fetch_add(0);
-            // TODO: is it ok or not to cast "t" to int64_t ?
-            if (lhead->tail.load() != (int64_t)t) continue;
-            if (h > t) {
-                int64_t tmp = t;
-                if (lhead->tail.compare_exchange_strong(tmp, h)) break;
-                continue;
-            }
-            break;
-        }
-    }
-
-    int close_crq(Node *rq, const uint64_t tailticket, const int tries) {
-        if (tries < 10) {
-            int64_t tmp = tailticket + 1;
-            return rq->tail.compare_exchange_strong(tmp, (tailticket + 1)|(1ull<<63));
-        }
-        else {
-            return BIT_TEST_AND_SET(&rq->tail, 63);
-        }
     }
 
 public:
     static constexpr size_t RING_SIZE = ring_size;
 
-    LCRQueue(int maxThreads=MAX_THREADS)
-        : MetricsAwareBase(maxThreads), maxThreads{maxThreads} {
+    CRQueue() :Base() {
         // Shared object init
-        Node *sentinel = new Node;
-        head.store(sentinel, std::memory_order_relaxed);
-        tail.store(sentinel, std::memory_order_relaxed);
-        mAppendNode.inc(1, 0);
-    }
-
-    ~LCRQueue() {
-        while (dequeue(0) != nullptr); // Drain the queue
-        delete head.load();            // Delete the last node
+        for (unsigned i = 0; i < RING_SIZE; i++) {
+            array[i].val.store(nullptr, std::memory_order_relaxed);
+            array[i].idx.store(i, std::memory_order_relaxed);
+        }
+        Base::head.store(0, std::memory_order_relaxed);
+        Base::tail.store(0, std::memory_order_relaxed);
+        Base::next.store(nullptr, std::memory_order_relaxed);
     }
 
     static std::string className() {
         using namespace std::string_literals;
-        return "LCRQueue"s + (padded_cells ? "/ca"s : ""s);
+        return "CRQueue"s + (padded_cells ? "/ca"s : ""s);
     }
 
-    void enqueue(T* item, const int tid) {
+    bool enqueue(T* item, [[maybe_unused]] const int tid) {
         int try_close = 0;
+
         while (true) {
-            Node* ltail = hp.protectPtr(kHpTail, tail.load(), tid);
-            if (ltail != tail.load())
-                continue;
-            Node *lnext = ltail->next.load();
-            if (lnext != nullptr) {  // Help advance the tail
-                tail.compare_exchange_strong(ltail, lnext);
-                continue;
+            uint64_t tailticket = Base::tail.fetch_add(1);
+            if (Base::isClosed(tailticket)) {
+                return false;
             }
 
-            uint64_t tailticket = ltail->tail.fetch_add(1);
-            if (crq_is_closed(tailticket)) {
-                Node* newNode = new Node();
-                // Solo enqueue (superfluous?)
-                newNode->tail.store(1, std::memory_order_relaxed);
-                newNode->array[0].val.store(item, std::memory_order_relaxed);
-                newNode->array[0].idx.store(0, std::memory_order_relaxed);
-                Node* nullnode = nullptr;
-                if (ltail->next.compare_exchange_strong(nullnode, newNode)) {// Insert new ring
-                    tail.compare_exchange_strong(ltail, newNode); // Advance the tail
-                    hp.clearOne(kHpTail, tid);
-                    mAppendNode.inc(1, tid);
-                    return;
-                }
-                delete newNode;
-                mWasteNode.inc(1, tid);
-                continue;
-            }
-            Cell* cell = &ltail->array[tailticket & (RING_SIZE-1)];
-            uint64_t idx = cell->idx.load();
-            if (cell->val.load() == nullptr) {
+            Cell& cell = array[tailticket % RING_SIZE];
+            uint64_t idx = cell.idx.load();
+            if (cell.val.load() == nullptr) {
                 if (node_index(idx) <= tailticket) {
                     // TODO: is the missing cast before "t" ok or not to add?
-                    if ((!node_unsafe(idx) || ltail->head.load() < (int64_t)tailticket)) {
-                        if (CAS2((void**)cell, nullptr, idx, item, tailticket)) {
-                            hp.clearOne(kHpTail, tid);
-                            return;
+                    if ((!node_unsafe(idx) || Base::head.load() < tailticket)) {
+                        if (CAS2((void**)&cell, nullptr, idx, item, tailticket)) {
+                            return true;
                         }
                     }
                 }
             }
-            if (((int64_t)(tailticket - ltail->head.load()) >= (int64_t)RING_SIZE) && close_crq(ltail, tailticket, ++try_close)) continue;
+            if (tailticket >= Base::head.load() + RING_SIZE) {
+                if (Base::closeSegment(tailticket, ++try_close > 10))
+                    return false;
+            }
         }
     }
 
-
-    T* dequeue(const int tid) {
-        Node* lhead = hp.protectPtr(kHpHead, head.load(), tid);
-
-        // In the next expression the order of volatile reads is essential. According to the standard
-        // the order of evaluation of the operands is unspecified, but compilers, we tested, preserve it.
-        if ((uint64_t)lhead->head.load() >= tail_index(lhead->tail.load())) {
-            // try to return empty
-            Node* lnext = lhead->next.load();
-            if (lnext == nullptr) {
-                hp.clearOne(kHpHead, tid);
-                return nullptr;  // Queue is empty
-            }
-
-            if (head.compare_exchange_strong(lhead, lnext)) {
-                hp.retire(lhead, tid);
-                lhead = hp.protectPtr(kHpHead, lnext, tid);
-            } else {
-                lhead = hp.protectPtr(kHpHead, lhead, tid);
-            }
-        }
+    T* dequeue([[maybe_unused]] const int tid) {
+        if (Base::isEmpty())
+            return nullptr;
 
         while (true) {
-            Node* lhead2 = head.load();
-            if (lhead != lhead2) {
-                lhead = hp.protectPtr(kHpHead, lhead2, tid);
-                continue;
-            }
-
-            uint64_t headticket = lhead->head.fetch_add(1);
-            Cell* cell = &lhead->array[headticket & (RING_SIZE-1)];
+            uint64_t headticket = Base::head.fetch_add(1);
+            Cell& cell = array[headticket % RING_SIZE];
 
             int r = 0;
             uint64_t tt = 0;
 
             while (true) {
-                uint64_t cell_idx = cell->idx.load();
+                uint64_t cell_idx = cell.idx.load();
                 uint64_t unsafe = node_unsafe(cell_idx);
                 uint64_t idx = node_index(cell_idx);
-                T* val = static_cast<T*>(cell->val.load());
+                T* val = static_cast<T*>(cell.val.load());
 
-                if (idx > headticket) break;
+                if (idx > headticket)
+                    break;
 
                 if (val != nullptr) {
                     if (idx == headticket) {
-                        if (CAS2((void**)cell, val, cell_idx, nullptr, unsafe | (headticket + RING_SIZE))) {
-                            hp.clearOne(kHpHead, tid);
+                        if (CAS2((void**)&cell, val, cell_idx, nullptr, unsafe | (headticket + RING_SIZE))) {
                             return val;
                         }
                     } else {
-                        if (CAS2((void**)cell, val, cell_idx, val, set_unsafe(idx))) break;
+                        if (CAS2((void**)&cell, val, cell_idx, val, set_unsafe(idx)))
+                            break;
                     }
                 } else {
-                    if ((r & ((1ull << 10) - 1)) == 0) tt = lhead->tail.load();
-                    // Optimization: try to bail quickly if queue is closed.
-                    int crq_closed = crq_is_closed(tt);
-                    uint64_t t = tail_index(tt);
-                    if (unsafe) { // Nothing to do, move along
-                        if (CAS2((void**)cell, val, cell_idx, val, unsafe | (headticket + RING_SIZE)))
+                    if ((r & ((1ull << 8) - 1)) == 0)
+                        tt = Base::tail.load();
+
+                    int crq_closed = Base::isClosed(tt);
+                    uint64_t t = Base::tailIndex(tt);
+                    if (unsafe || t < headticket + 1 || crq_closed || r > 4*1024) {
+                        if (CAS2((void**)&cell, val, cell_idx, val, unsafe | (headticket + RING_SIZE)))
                             break;
-                    } else if (t < headticket + 1 || r > 200000 || crq_closed) {
-                        if (CAS2((void**)cell, val, idx, val, headticket + RING_SIZE)) {
-                            if (r > 200000 && tt > RING_SIZE) BIT_TEST_AND_SET(&lhead->tail, 63);
-                            break;
-                        }
-                    } else {
-                        ++r;
                     }
+                    ++r;
                 }
             }
 
-            if (tail_index(lhead->tail.load()) <= headticket + 1) {
-                fixState(lhead);
-                // try to return empty
-                Node* lnext = lhead->next.load();
-                if (lnext == nullptr) {
-                    hp.clearOne(kHpHead, tid);
-                    return nullptr;  // Queue is empty
-                }
-                if (tail_index(lhead->tail) <= headticket + 1) {
-                    if (head.compare_exchange_strong(lhead, lnext)) {
-                        hp.retire(lhead, tid);
-                        lhead = hp.protectPtr(kHpHead, lnext, tid);
-                    } else {
-                        lhead = hp.protectPtr(kHpHead, lhead, tid);
-                    }
-                }
+            if (Base::tailIndex(Base::tail.load()) <= headticket + 1) {
+                Base::fixState();
+                return nullptr;
             }
         }
     }
 };
 
-#endif /* _LCRQ_QUEUE_HP_H_ */
+template<typename T, bool padded_cells = false, size_t ring_size = 1024>
+using LCRQueue = LinkedRingQueue<T, CRQueue<T, padded_cells, ring_size>>;

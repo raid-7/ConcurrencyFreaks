@@ -154,9 +154,23 @@ public:
         return "FAAArrayQueue"s + (padded_cells ? "/ca"s : ""s);
     }
 
+    size_t estimateSize(int tid) {
+        size_t res;
+        Node* lhead = hp.protect(kHpHead, head, tid);
+        if (lhead->next.load() != nullptr) {
+            res = RING_SIZE;
+        } else {
+            int eIdx = lhead->enqidx.load();
+            int dIdx = lhead->deqidx.load();
+            res = eIdx - dIdx;
+        }
+        hp.clearOne(kHpHead, tid);
+        return res;
+    }
 
     void enqueue(T* item, const int tid) {
-        if (item == nullptr) throw std::invalid_argument("item can not be nullptr");
+        if (item == nullptr)
+            throw std::invalid_argument("item can not be nullptr");
         while (true) {
             Node* ltail = hp.protect(kHpTail, tail, tid);
             const int idx = ltail->enqidx.fetch_add(1);
