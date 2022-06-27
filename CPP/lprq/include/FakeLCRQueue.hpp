@@ -73,6 +73,9 @@ private:
     const int kHpTail = 0;
     const int kHpHead = 0;
 
+    MetricsCollector::Accessor mAppendNode = accessor("appendNode");
+    MetricsCollector::Accessor mWasteNode = accessor("wasteNode");
+
 
     uint64_t node_index(uint64_t i) {
         return (i & ~(1ull << 63));
@@ -122,13 +125,13 @@ private:
 public:
     static constexpr size_t RING_SIZE = ring_size;
 
-    FakeLCRQueue(int maxThreads=MAX_THREADS, bool needMetrics=false)
-            : MetricsAwareBase(maxThreads, needMetrics), maxThreads{maxThreads} {
+    FakeLCRQueue(int maxThreads=MAX_THREADS)
+            : MetricsAwareBase(maxThreads), maxThreads{maxThreads} {
         // Shared object init
         Node *sentinel = new Node;
         head.store(sentinel, std::memory_order_relaxed);
         tail.store(sentinel, std::memory_order_relaxed);
-        incMetric<"appendNode">(1, 0);
+        mAppendNode.inc(1, 0);
     }
 
 
@@ -169,11 +172,11 @@ public:
                 if (ltail->next.compare_exchange_strong(nullnode, newNode)) {// Insert new ring
                     tail.compare_exchange_strong(ltail, newNode); // Advance the tail
                     hp.clearOne(kHpTail, tid);
-                    incMetric<"appendNode">(1, tid);
+                    mAppendNode.inc(1, tid);
                     return;
                 }
                 delete newNode;
-                incMetric<"wasteNode">(1, tid);
+                mWasteNode.inc(1, tid);
                 continue;
             }
             Cell* cell = &ltail->array[tailticket & (RING_SIZE-1)];

@@ -24,7 +24,7 @@ struct ParameterSet {
     template<ValueType... values>
     struct Of {
     public:
-        static constexpr std::array Values = { values... };
+        static constexpr std::array Values = {values...};
 
         using ValueConstants = TypeSet<std::integral_constant<ValueType, values>...>;
 
@@ -44,19 +44,6 @@ struct ParameterSet {
             });
         }
     };
-};
-
-template<size_t N>
-struct TemplateStringLiteral {
-    char value[N]{};
-
-    constexpr TemplateStringLiteral(const char (&str)[N]) {
-        std::copy_n(str, N, value);
-    }
-
-    constexpr operator std::string_view() const noexcept {
-        return {value};
-    }
 };
 
 }

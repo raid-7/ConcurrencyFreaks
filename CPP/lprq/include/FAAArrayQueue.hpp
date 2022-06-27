@@ -125,17 +125,20 @@ private:
     const int kHpTail = 0;
     const int kHpHead = 0;
 
+    MetricsCollector::Accessor mAppendNode = accessor("appendNode");
+    MetricsCollector::Accessor mWasteNode = accessor("wasteNode");
+
 
 public:
     static constexpr size_t RING_SIZE = BUFFER_SIZE;
 
-    FAAArrayQueue(int maxThreads=MAX_THREADS, bool needMetrics=false)
-            : MetricsAwareBase(maxThreads, needMetrics), maxThreads{maxThreads} {
+    FAAArrayQueue(int maxThreads=MAX_THREADS)
+            : MetricsAwareBase(maxThreads), maxThreads{maxThreads} {
         Node* sentinelNode = new Node(nullptr);
         sentinelNode->enqidx.store(0, std::memory_order_relaxed);
         head.store(sentinelNode, std::memory_order_relaxed);
         tail.store(sentinelNode, std::memory_order_relaxed);
-        incMetric<"appendNode">(1, 0);
+        mAppendNode.inc(1, 0);
     }
 
 
@@ -165,10 +168,10 @@ public:
                     if (ltail->casNext(nullptr, newNode)) {
                         casTail(ltail, newNode);
                         hp.clearOne(kHpTail, tid);
-                        incMetric<"appendNode">(1, tid);
+                        mAppendNode.inc(1, tid);
                         return;
                     }
-                    incMetric<"wasteNode">(1, tid);
+                    mWasteNode.inc(1, tid);
                     delete newNode;
                 } else {
                     casTail(ltail, lnext);

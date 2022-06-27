@@ -2,23 +2,31 @@
 
 #include <unordered_map>
 #include <string>
+#include <numeric>
 #include <vector>
 #include <ostream>
+#include <mutex>
 #include "MetaprogrammingUtils.hpp"
 #include "Stats.hpp"
 
 
 class Metrics {
 private:
-    std::unordered_map<std::string_view, size_t> metrics{};
+    std::unordered_map<std::string, size_t> metrics{};
 
 public:
-    template<mpg::TemplateStringLiteral metric>
-    void inc(size_t value) {
-       metrics[metric] += value;
+    size_t& operator [](const std::string& metric) {
+        return metrics[metric];
     }
 
-    const std::unordered_map<std::string_view, size_t>& data() const {
+    size_t operator [](const std::string& metric) const {
+        auto it = metrics.find(metric);
+        if (it == metrics.end())
+            return 0;
+        return it->second;
+    }
+
+    const std::unordered_map<std::string, size_t>& data() const {
         return metrics;
     }
 
@@ -51,15 +59,15 @@ std::ostream& operator <<(std::ostream& stream, const Metrics& metrics) {
 }
 
 template <class It>
-std::unordered_map<std::string_view, Stats<long double>> metricStats(const It begin, const It end) {
-    std::unordered_map<std::string_view, std::vector<long double>> data;
+std::unordered_map<std::string, Stats<long double>> metricStats(const It begin, const It end) {
+    std::unordered_map<std::string, std::vector<long double>> data;
     for (It it = begin; it != end; ++it) {
         for (auto [key, value] : it->data()) {
             data[key].push_back(static_cast<long double>(value));
         }
     }
 
-    std::unordered_map<std::string_view, Stats<long double>> res;
+    std::unordered_map<std::string, Stats<long double>> res;
     for (const auto& [key, values] : data) {
         res[key] = stats(values.begin(), values.end());
     }
@@ -69,57 +77,75 @@ std::unordered_map<std::string_view, Stats<long double>> metricStats(const It be
 
 class MetricsCollector {
 private:
-    std::vector<Metrics> tlMetrics;
+    std::unordered_map<std::string, std::vector<size_t>> allMetrics;
+    std::mutex mutex;
+    size_t numThreads;
 
 public:
-    explicit MetricsCollector(size_t numThreads) :tlMetrics(numThreads) {}
+    class Accessor {
+    private:
+        size_t* tlMetrics;
+
+    public:
+        explicit Accessor(size_t* tlMetrics)
+            :tlMetrics(tlMetrics) {}
+
+        void inc(const size_t value, int tid) {
+            tlMetrics[tid] += value;
+        }
+    };
+
+    explicit MetricsCollector(size_t numThreads)
+        :numThreads(numThreads) {}
     MetricsCollector(const Metrics&) = delete;
     MetricsCollector(Metrics&&) = delete;
     MetricsCollector& operator=(const Metrics&) = delete;
     MetricsCollector& operator=(Metrics&&) = delete;
 
-    template<mpg::TemplateStringLiteral metric>
-    void inc(size_t value, int tid) {
-        tlMetrics[tid].template inc<metric>(value);
+    Accessor accessor(std::string metric) {
+        std::lock_guard lock(mutex);
+        std::vector<size_t>& tlMetrics = allMetrics[std::move(metric)];
+        if (tlMetrics.size() < numThreads)
+            tlMetrics.resize(numThreads, 0);
+        return Accessor(tlMetrics.data());
     }
 
-    Metrics combine() const {
+    Metrics combine() {
         Metrics res;
-        for (size_t i = 0; i < tlMetrics.size(); ++i) {
-            res += tlMetrics[i];
+        std::lock_guard lock(mutex);
+        for (const auto& [key, tlMetrics] : allMetrics) {
+            res[key] = std::reduce(tlMetrics.begin(), tlMetrics.end());
         }
         return res;
     }
 
     void reset(int tid) {
-        tlMetrics[tid].reset();
+        std::lock_guard lock(mutex);
+        for (auto& [key, tlMetrics] : allMetrics) {
+            tlMetrics[tid] = 0;
+        }
     }
 
     void reset() {
-        for (size_t i = 0; i < tlMetrics.size(); ++i) {
-            tlMetrics[i].reset();
-        }
+        std::lock_guard lock(mutex);
+        allMetrics.clear();
     }
 };
 
 class MetricsAwareBase {
 private:
     MetricsCollector collector;
-    bool needMetrics;
 
 protected:
-    template<mpg::TemplateStringLiteral metric>
-    void incMetric(size_t value, int tid) {
-        if (needMetrics) {
-            collector.template inc<metric>(value, tid);
-        }
+    MetricsCollector::Accessor accessor(std::string metric) {
+        return collector.accessor(std::move(metric));
     }
 
 public:
-    MetricsAwareBase(size_t numThreads, bool needMetrics)
-        : collector(numThreads), needMetrics(needMetrics) {}
+    explicit MetricsAwareBase(size_t numThreads)
+        : collector(numThreads) {}
 
-    Metrics collectMetrics() const {
+    Metrics collectMetrics() {
         return collector.combine();
     }
 

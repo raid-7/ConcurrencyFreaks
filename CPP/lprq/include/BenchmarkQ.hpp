@@ -98,7 +98,7 @@ static void printMetrics(const vector<Metrics>& metrics) {
 }
 
 static void writeThroughputCsvHeader(std::ostream& stream) {
-    // in JMH compatible format for uniform postprocessing
+    // in (almost) JMH-compatible format for uniform postprocessing
     stream << "Benchmark,\"Param: queueType\",Threads,\"Param: additionalWork\",\"Param: ringSize\","
            << "Score,\"Score Error\"\n";
 }
@@ -211,9 +211,8 @@ private:
 
 
     void computeSecondaryMetrics(Metrics& m) {
-        auto data = m.data();
-        m.inc<"transfersPerNode">(data["transfers"sv] / data["appendNode"sv]);
-        m.inc<"wasteToAppendNodeRatio">(data["wasteNode"sv] / data["appendNode"sv]);
+        m["transfersPerNode"] = m["transfers"] / m["appendNode"];
+        m["wasteToAppendNodeRatio"] = m["wasteNode"] / m["appendNode"];
     }
 
 public:
@@ -257,7 +256,7 @@ public:
 
         cout << "##### " << Q::className() << " #####  \n";
         for (int irun = 0; irun < numRuns; irun++) {
-            queue = new Q(numThreads, needMetrics);
+            queue = new Q(numThreads);
             ThreadGroup threads{};
             for (size_t i = 0; i < numThreads; ++i)
                 threads.threadWithResult(enqdeq_lambda, deltas[i][irun]);
@@ -280,8 +279,8 @@ public:
 
             opsPerSec[irun] = static_cast<long double>(numPairs * 2 * NSEC_IN_SEC * numThreads) / agg.count();
 
-            metrics[irun].inc<"appendNode">(1); // 1 node always exists, but we reset metrics and lose it
-            metrics[irun].inc<"transfers">((numPairs / numThreads) * numThreads);
+            ++metrics[irun]["appendNode"]; // 1 node always exists, but we reset metrics and lose it
+            metrics[irun]["transfers"] += (numPairs / numThreads) * numThreads;
         }
 
         return opsPerSec;
@@ -380,9 +379,8 @@ private:
     bool needMetrics;
 
     void computeSecondaryMetrics(Metrics& m) {
-        auto data = m.data();
-        m.inc<"transfersPerNode">(data["transfers"sv] / data["appendNode"sv]);
-        m.inc<"wasteToAppendNodeRatio">(data["wasteNode"sv] / data["appendNode"sv]);
+        m["transfersPerNode"] += m["transfers"] / m["appendNode"];
+        m["wasteToAppendNodeRatio"] += m["wasteNode"] / m["appendNode"];
     }
 
 public:
@@ -462,7 +460,7 @@ public:
 
         cout << "##### " << Q::className() << " #####  \n";
         for (int irun = 0; irun < numRuns; irun++) {
-            queue = new Q(numProducers + numConsumers, needMetrics);
+            queue = new Q(numProducers + numConsumers);
             ThreadGroup threads{};
             for (size_t i = 0; i < numProducers; ++i)
                 threads.thread(prod_lambda);
@@ -482,7 +480,7 @@ public:
             threads.join();
 
             Metrics queueMetrics = queue->collectMetrics();
-            queueMetrics.inc<"remainedElements">(drainQueueAndCountElements(*queue, 0));
+            queueMetrics["remainedElements"] += drainQueueAndCountElements(*queue, 0);
             metrics.emplace_back(std::move(queueMetrics));
             delete (Q*) queue;
         }
@@ -495,9 +493,9 @@ public:
                 totalCount += transferredCount[i][irun];
             }
 
-            metrics[irun].inc<"appendNode">(1); // 1 node always exists, but we reset metrics and lose it
-            metrics[irun].inc<"transfers">(totalCount);
-            metrics[irun].inc<"duration">(deltas[irun].count());
+            ++metrics[irun]["appendNode"]; // 1 node always exists, but we reset metrics and lose it
+            metrics[irun]["transfers"] += totalCount;
+            metrics[irun]["duration"] += deltas[irun].count();
 
             transfersPerSec[irun] = static_cast<long double>(totalCount * NSEC_IN_SEC) / deltas[irun].count();
         }
