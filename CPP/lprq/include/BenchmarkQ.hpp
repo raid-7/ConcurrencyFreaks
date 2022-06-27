@@ -398,6 +398,14 @@ public:
             producerAdditionalWork = additionalWork;
             consumerAdditionalWork = additionalWork;
         }
+
+        if (balancedLoad && consumerAdditionalWork > 1.0) {
+            // we intentionally speed up consumers to ensure the queue does not grow indefinitely
+            // the following adjustment strategy is experimental
+
+            consumerAdditionalWork -= min(1., consumerAdditionalWork * 0.3);
+            consumerAdditionalWork = max(1.0, consumerAdditionalWork);
+        }
     }
 
 
