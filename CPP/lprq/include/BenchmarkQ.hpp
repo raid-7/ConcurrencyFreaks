@@ -404,7 +404,7 @@ public:
     template<typename Q>
     vector<long double> producerConsumerBenchmark(const milliseconds runDuration, const int numRuns,
                                                   vector<Metrics>& metrics) {
-        uint32_t transferredCount[numConsumers][numRuns];
+        pair<uint32_t, uint32_t> transferredCount[numConsumers][numRuns];
         nanoseconds deltas[numRuns];
         Q* queue = nullptr;
         barrier<> barrier(numProducers + numConsumers + 1);
@@ -441,21 +441,24 @@ public:
             }
 
             queue->resetMetrics(tid);
-            uint32_t deqCount = 0;
+            uint32_t successfulDeqCount = 0;
+            uint32_t failedDeqCount = 0;
             barrier.arrive_and_wait();
             // Measurement phase
             while (!stopFlag.load()) {
                 UserData* d = queue->dequeue(tid);
                 if (d != nullptr) {
-                    ++deqCount;
+                    ++successfulDeqCount;
                     if (d == &dummy)
                         // side effect to prevent DCE
                         cout << "This message will never appear \n";
+                } else {
+                    ++failedDeqCount;
                 }
                 random_additional_work(consumerAdditionalWork);
             }
 
-            return deqCount;
+            return pair{successfulDeqCount, failedDeqCount};
         };
 
         cout << "##### " << Q::className() << " #####  \n";
@@ -488,16 +491,19 @@ public:
         // Sum up all the time deltas of all threads so we can find the median run
         vector<long double> transfersPerSec(numRuns);
         for (int irun = 0; irun < numRuns; irun++) {
-            uint32_t totalCount = 0;
+            uint32_t totalTransfersCount = 0;
+            uint32_t totalFailedDeqCount = 0;
             for (size_t i = 0; i < numConsumers; ++i) {
-                totalCount += transferredCount[i][irun];
+                totalTransfersCount += transferredCount[i][irun].first;
+                totalFailedDeqCount += transferredCount[i][irun].second;
             }
 
             ++metrics[irun]["appendNode"]; // 1 node always exists, but we reset metrics and lose it
-            metrics[irun]["transfers"] += totalCount;
+            metrics[irun]["transfers"] += totalTransfersCount;
+            metrics[irun]["failedDequeues"] += totalFailedDeqCount;
             metrics[irun]["duration"] += deltas[irun].count();
 
-            transfersPerSec[irun] = static_cast<long double>(totalCount * NSEC_IN_SEC) / deltas[irun].count();
+            transfersPerSec[irun] = static_cast<long double>(totalTransfersCount * NSEC_IN_SEC) / deltas[irun].count();
         }
 
         return transfersPerSec;
