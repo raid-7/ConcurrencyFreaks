@@ -1,7 +1,13 @@
 #include "BenchmarkQ.hpp"
+
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
+
 #include <CLI/App.hpp>
 #include <CLI/Formatter.hpp>
 #include <CLI/Config.hpp>
+
+#pragma GCC diagnostic pop
 
 #include <set>
 #include <vector>
