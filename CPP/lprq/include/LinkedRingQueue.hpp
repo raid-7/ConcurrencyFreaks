@@ -11,13 +11,13 @@ class LinkedRingQueue : public MetricsAwareBase {
 private:
     static constexpr int MAX_THREADS = 128;
     static constexpr int kHpTail = 0;
-    static constexpr int kHpHead = 0;
+    static constexpr int kHpHead = 1;
     const int maxThreads;
 
     alignas(128) std::atomic<Segment*> head;
     alignas(128) std::atomic<Segment*> tail;
 
-    HazardPointers<Segment> hp {1, maxThreads};
+    HazardPointers<Segment> hp {2, maxThreads};
 
     MetricsCollector::Accessor mAppendNode = accessor("appendNode");
     MetricsCollector::Accessor mWasteNode = accessor("wasteNode");
@@ -28,7 +28,7 @@ public:
     explicit LinkedRingQueue(int maxThreads=MAX_THREADS)
             : MetricsAwareBase(maxThreads), maxThreads{maxThreads} {
         // Shared object init
-        Segment* sentinel = new Segment{};
+        Segment* sentinel = new Segment(0);
         head.store(sentinel, std::memory_order_relaxed);
         tail.store(sentinel, std::memory_order_relaxed);
         mAppendNode.inc(1, 0);
@@ -45,7 +45,6 @@ public:
 
     void enqueue(T* item, int tid) {
         Segment* ltail = hp.protectPtr(kHpTail, tail.load(), tid);
-        Segment* newTail = nullptr;
         while (true) {
             Segment* ltail2 = tail.load();
             if (ltail2 != ltail) {
@@ -68,26 +67,21 @@ public:
                 break;
             }
 
-            if (newTail == nullptr) {
-                newTail = new Segment();
-                newTail->enqueue(item, tid);
-            }
+            Segment* newTail = new Segment(ltail->tailIndex(ltail->tail.load()) - 1);
+            newTail->enqueue(item, tid);
 
             Segment* nullNode = nullptr;
             if (ltail->next.compare_exchange_strong(nullNode, newTail)) {
                 tail.compare_exchange_strong(ltail, newTail);
                 hp.clearOne(kHpTail, tid);
-                newTail = nullptr;
                 mAppendNode.inc(1, tid);
                 break;
+            } else {
+                delete newTail;
+                mWasteNode.inc(1, tid);
             }
 
             ltail = hp.protectPtr(kHpTail, nullNode, tid);
-        }
-
-        if (newTail != nullptr) {
-            mWasteNode.inc(1, tid);
-            delete newTail;
         }
     }
 
@@ -123,17 +117,12 @@ public:
     }
 
     size_t estimateSize(int tid) {
-        size_t res;
         Segment* lhead = hp.protect(kHpHead, head, tid);
-        if (lhead->next.load() != nullptr) {
-            res = RING_SIZE;
-        } else {
-            uint64_t t = lhead->tail.load();
-            uint64_t h = lhead->head.load();
-            res = t > h ? t - h : 0;
-        }
-        hp.clearOne(kHpHead, tid);
-        return res;
+        Segment* ltail = hp.protect(kHpTail, tail, tid);
+        uint64_t t = ltail->tailIndex(ltail->tail.load());
+        uint64_t h = lhead->head.load();
+        hp.clear(tid);
+        return t > h ? t - h : 0;
     }
 };
 

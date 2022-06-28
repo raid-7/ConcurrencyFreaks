@@ -30,6 +30,7 @@
 #define _FAA_ARRAY_QUEUE_HP_H_
 
 #include <atomic>
+#include <cstring>
 #include <stdexcept>
 #include "RQCell.hpp"
 #include "Metrics.hpp"
@@ -89,13 +90,13 @@ private:
         alignas(128) std::atomic<int>   enqidx;
         alignas(128) std::atomic<Node*> next;
         Cell                            items[BUFFER_SIZE];
+        const uint64_t startIndexOffset;
 
         // Start with the first entry pre-filled and enqidx at 1
-        Node(T* item) : deqidx{0}, enqidx{1}, next{nullptr} {
+        Node(T* item, uint64_t startIndexOffset) : deqidx{0}, enqidx{1}, next{nullptr},
+            startIndexOffset(startIndexOffset) {
+            std::memset(items, 0, sizeof(items));
             items[0].val.store(item, std::memory_order_relaxed);
-            for (long i = 1; i < BUFFER_SIZE; i++) {
-                items[i].val.store(nullptr, std::memory_order_relaxed);
-            }
         }
 
         bool casNext(Node *cmp, Node *val) {
@@ -121,9 +122,9 @@ private:
     T* taken = (T*)new int();  // Muuuahahah !
 
     // We need just one hazard pointer
-    HazardPointers<Node> hp {1, maxThreads};
+    HazardPointers<Node> hp {2, maxThreads};
     const int kHpTail = 0;
-    const int kHpHead = 0;
+    const int kHpHead = 1;
 
     MetricsCollector::Accessor mAppendNode = accessor("appendNode");
     MetricsCollector::Accessor mWasteNode = accessor("wasteNode");
@@ -134,7 +135,7 @@ public:
 
     FAAArrayQueue(int maxThreads=MAX_THREADS)
             : MetricsAwareBase(maxThreads), maxThreads{maxThreads} {
-        Node* sentinelNode = new Node(nullptr);
+        Node* sentinelNode = new Node(nullptr, 0);
         sentinelNode->enqidx.store(0, std::memory_order_relaxed);
         head.store(sentinelNode, std::memory_order_relaxed);
         tail.store(sentinelNode, std::memory_order_relaxed);
@@ -155,17 +156,12 @@ public:
     }
 
     size_t estimateSize(int tid) {
-        size_t res;
         Node* lhead = hp.protect(kHpHead, head, tid);
-        if (lhead->next.load() != nullptr) {
-            res = RING_SIZE;
-        } else {
-            int eIdx = lhead->enqidx.load();
-            int dIdx = lhead->deqidx.load();
-            res = eIdx - dIdx;
-        }
-        hp.clearOne(kHpHead, tid);
-        return res;
+        Node* ltail = hp.protect(kHpTail, tail, tid);
+        uint64_t t = ltail->enqidx.load() + ltail->startIndexOffset;
+        uint64_t h = lhead->deqidx.load() + lhead->startIndexOffset;
+        hp.clear(tid);
+        return t > h ? t - h : 0;
     }
 
     void enqueue(T* item, const int tid) {
@@ -178,7 +174,7 @@ public:
                 if (ltail != tail.load()) continue;
                 Node* lnext = ltail->next.load();
                 if (lnext == nullptr) {
-                    Node* newNode = new Node(item);
+                    Node* newNode = new Node(item, ltail->startIndexOffset + idx);
                     if (ltail->casNext(nullptr, newNode)) {
                         casTail(ltail, newNode);
                         hp.clearOne(kHpTail, tid);

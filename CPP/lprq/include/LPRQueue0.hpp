@@ -29,15 +29,14 @@ private:
 public:
     static constexpr size_t RING_SIZE = ring_size;
 
-    PRQueue0() :Base() {
-        // Shared object init
-        for (unsigned i = 0; i < RING_SIZE; i++) {
-            array[i].val.store(nullptr, std::memory_order_relaxed);
-            array[i].idx.store(i, std::memory_order_relaxed);
+    PRQueue0(uint64_t start) :Base() {
+        for (uint64_t i = start; i < start + RING_SIZE; i++) {
+            uint64_t j = i % RING_SIZE;
+            array[j].val.store(nullptr, std::memory_order_relaxed);
+            array[j].idx.store(i, std::memory_order_relaxed);
         }
-        Base::head.store(0, std::memory_order_relaxed);
-        Base::tail.store(0, std::memory_order_relaxed);
-        Base::next.store(nullptr, std::memory_order_relaxed);
+        Base::head.store(start, std::memory_order_relaxed);
+        Base::tail.store(start, std::memory_order_relaxed);
     }
 
     static std::string className() {

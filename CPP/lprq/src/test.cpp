@@ -71,12 +71,15 @@ TYPED_TEST(QueueTest, BatchEnqDeqStress1) {
         for (uint32_t j = 0; j < 128; ++j) {
             int* v = &xyz[j % 32];
             q.enqueue(v, tid);
+            EXPECT_EQ(j + 1, q.estimateSize(0));
         }
         for (uint32_t j = 0; j < 128; ++j) {
             int* v = &xyz[j % 32];
             EXPECT_EQ(v, q.dequeue(tid)) << ">> " << i << ' ' << j;
+            EXPECT_EQ(128 - j - 1, q.estimateSize(0));
         }
         EXPECT_EQ(nullptr, q.dequeue(tid));
+        EXPECT_EQ(0, q.estimateSize(0));
     }
 }
 
@@ -89,12 +92,15 @@ TYPED_TEST(QueueTest, BatchEnqDeqStress2) {
         for (uint32_t j = 0; j < 2048; ++j) {
             int* v = &xyz[j % 32];
             q.enqueue(v, tid);
+            EXPECT_EQ(j + 1, q.estimateSize(0));
         }
         for (uint32_t j = 0; j < 2048; ++j) {
             int* v = &xyz[j % 32];
             EXPECT_EQ(v, q.dequeue(tid)) << ">> " << i << ' ' << j;
+            EXPECT_EQ(2048 - j - 1, q.estimateSize(0));
         }
         EXPECT_EQ(nullptr, q.dequeue(tid));
+        EXPECT_EQ(0, q.estimateSize(0));
     }
 }
 

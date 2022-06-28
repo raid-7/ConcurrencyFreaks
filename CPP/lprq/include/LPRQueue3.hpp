@@ -50,15 +50,23 @@ private:
 public:
     static constexpr size_t RING_SIZE = ring_size;
 
-    PRQueue3() :Base() {
+    PRQueue3(uint64_t start) :Base() {
         for (size_t i = 0; i < RING_SIZE; i++) {
             array[i].val.store(nullptr, std::memory_order_relaxed);
         }
-        for (size_t i = 0; i < num_completion_counters; i++) {
-            counters[i].val.store(0, std::memory_order_relaxed);
+
+        uint64_t cellsPerCounter = RING_SIZE / num_completion_counters;
+        uint64_t startEpoch = start / RING_SIZE;
+        for (size_t i = 0; i < num_completion_counters; ++i) {
+            counters[i].val.store(startEpoch * cellsPerCounter, std::memory_order_relaxed);
         }
-        Base::head.store(0, std::memory_order_relaxed);
-        Base::tail.store(0, std::memory_order_relaxed);
+        for (size_t i = 0; i < start % RING_SIZE; ++i) {
+            CounterCell& counter = counters[headTailCompletionCounterIndex(i)];
+            counter.val.store(counter.val.load(std::memory_order_relaxed) + 1, std::memory_order_relaxed);
+        }
+
+        Base::head.store(start, std::memory_order_relaxed);
+        Base::tail.store(start, std::memory_order_relaxed);
         Base::next.store(nullptr, std::memory_order_relaxed);
     }
 
