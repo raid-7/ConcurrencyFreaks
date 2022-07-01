@@ -348,17 +348,6 @@ public:
         }
 
         csvFile.close();
-
-        // Burst Throughput benchmarks
-//        const long long burstSize = 1000000LL;     // 1M for the paper
-//        const int numIters = 100;                  // Number of iterations of 1M enqueues/dequeues
-//        for (int nThreads: threadList) {
-//            BenchmarkQ bench(nThreads, 0.);
-//            std::cout << "\n----- Burst Benchmark   numThreads=" << nThreads << "   burstSize=" << burstSize / 1000LL
-//                      << "K   numIters=" << numIters << " -----\n";
-//            bench.burstBenchmark<MichaelScottQueue<UserData>>(burstSize, numIters, numRuns);
-//            bench.burstBenchmark<LCRQueue<UserData>>(burstSize, numIters, numRuns);
-//        }
     }
 };
 
