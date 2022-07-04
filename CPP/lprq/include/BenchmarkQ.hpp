@@ -417,8 +417,8 @@ public:
                 // in case of balances load slow down producers if the queue starts growing too much
                 // do not check size too often because it involves hazard pointers protection
                 // note, estimateSize is more or less accurate only if the queue consists of one segment
-                if ((iter & ((1ull << 6) - 1)) != 0 || !balancedLoad ||
-                    queue->estimateSize(tid) < Q::RING_SIZE * 3 / 4) {
+                if ((iter & ((1ull << 5) - 1)) != 0 || !balancedLoad ||
+                    queue->estimateSize(tid) < Q::RING_SIZE * 7 / 10) {
 
                     queue->enqueue(&ud, tid);
                     ++iter;
