@@ -408,6 +408,8 @@ public:
             for (size_t iter = 0; iter < kNumPairsWarmup / numProducers; iter++) {
                 queue->enqueue(&ud, tid);
             }
+            barrier.arrive_and_wait();
+            // Finish warmup, consumers drain the queue
 
             queue->resetMetrics(tid);
             barrier.arrive_and_wait();
@@ -438,6 +440,9 @@ public:
                     // side effect to prevent DCE
                     cout << "This message must never appear; " << iter << "\n";
             }
+            barrier.arrive_and_wait();
+            // Finish warmup, drain the queue
+            while (queue->dequeue(tid) != nullptr);
 
             queue->resetMetrics(tid);
             uint32_t successfulDeqCount = 0;
@@ -471,6 +476,7 @@ public:
 
             stopFlag.store(false);
             barrier.arrive_and_wait(); // start warmup
+            barrier.arrive_and_wait(); // finish warmup
             barrier.arrive_and_wait(); // start measurements
             auto startAll = steady_clock::now();
             std::this_thread::sleep_for(runDuration);
