@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <algorithm>
 #include "LinkedRingQueue.hpp"
 #include "RQCell.hpp"
 #include "x86AtomicOps.hpp"
@@ -183,6 +184,8 @@ public:
 };
 
 template<typename T, bool padded_cells = false, size_t ring_size = 1024,
-        size_t num_completion_counters = 32, size_t counter_concurrency_level = 8, bool padded_counters = true>
+        size_t num_completion_counters = std::min((size_t) 32, ring_size),
+        size_t counter_concurrency_level = std::min((size_t) 8, num_completion_counters / 2),
+        bool padded_counters = true>
 using LPRQueue3 = LinkedRingQueue<T,
     PRQueue3<T, padded_cells, ring_size, num_completion_counters, counter_concurrency_level, padded_counters>>;
